@@ -46,6 +46,7 @@ export type MemoryNode = {
 };
 
 export type MemoryLink = {
+  id?: string;
   source: string | MemoryNode;
   target: string | MemoryNode;
   relation: string;
@@ -98,13 +99,13 @@ export const clusters: MemoryCluster[] = [
 export const storyPath = ['query-current', 'story-symptom', 'story-duplicate', 'story-decision', 'story-change', 'story-incident', 'story-resolution'];
 
 export const storyChapters = [
-  { id: 'query-current', step: '01', label: 'CURRENT ISSUE', title: '신규 이슈 감지', caption: 'Query Node를 NOW · balance-query · Z 210에 고정했습니다.' },
-  { id: 'story-symptom', step: '02', label: 'SEMANTIC MATCH', title: '유사 증상 발견', caption: '의미 관련도 91%인 과거 이슈가 화면 앞으로 상승합니다.' },
-  { id: 'story-duplicate', step: '03', label: 'DUPLICATE', title: '중복 처리 확인', caption: '다른 팀의 83% 관련 해결 이력을 연결했습니다.' },
-  { id: 'story-decision', step: '04', label: 'INTENT', title: '기획 의도 복원', caption: '10개월 전 비동기 분리 결정을 시간선에서 복원합니다.' },
-  { id: 'story-change', step: '05', label: 'CODE CHANGE', title: '변경 영향 추적', caption: '같은 cache-sdk 파일군의 변경을 소스 Lane에서 확인합니다.' },
-  { id: 'story-incident', step: '06', label: 'SIDE EFFECT', title: '과거 장애 경고', caption: '캐시 우회가 DB 고갈로 이어진 과거 경로를 경고합니다.' },
-  { id: 'story-resolution', step: '07', label: 'HISTORY BRIEF', title: '필요 맥락 완성', caption: '시간 · 소스 · 의미 근거를 하나의 Brief로 컴파일합니다.' },
+  { id: 'query-current', step: '01', label: 'CURRENT ISSUE', title: '신규 이슈 감지', caption: 'Query Node를 중력의 기준점으로 고정하고 직접 연결을 밝힙니다.' },
+  { id: 'story-symptom', step: '02', label: 'SEMANTIC MATCH', title: '유사 증상 발견', caption: '의미가 가장 가까운 과거 이슈가 1-hop 관계선으로 당겨집니다.' },
+  { id: 'story-duplicate', step: '03', label: 'DUPLICATE', title: '중복 처리 확인', caption: '다른 팀의 해결 이력이 두 번째 History 가지로 정렬됩니다.' },
+  { id: 'story-decision', step: '04', label: 'INTENT', title: '기획 의도 복원', caption: '10개월 전 설계 의도가 3단계 History Tree 안에서 복원됩니다.' },
+  { id: 'story-change', step: '05', label: 'CODE CHANGE', title: '변경 영향 추적', caption: '같은 cache-sdk 파일군이 밝은 직접 관계로 다시 강조됩니다.' },
+  { id: 'story-incident', step: '06', label: 'SIDE EFFECT', title: '과거 장애 경고', caption: '캐시 우회가 DB 고갈로 이어진 과거 가지를 별도로 경고합니다.' },
+  { id: 'story-resolution', step: '07', label: 'HISTORY BRIEF', title: '필요 맥락 완성', caption: '남은 성운은 지층에 두고 필요한 히스토리만 Brief로 컴파일합니다.' },
 ];
 
 const titles = [
@@ -280,6 +281,10 @@ export function createMemoryGraph(): MemoryGraph {
     { source: 'story-change', target: 'query-current', relation: 'PRECEDES', score: 0.92 },
     { source: 'story-resolution', target: 'query-current', relation: 'BRIEFS', score: 0.97 },
   );
+
+  links.forEach((link, index) => {
+    link.id = `relation-${String(index + 1).padStart(4, '0')}`;
+  });
 
   return { nodes, links };
 }
