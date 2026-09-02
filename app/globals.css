@@ -143,6 +143,47 @@
   backdrop-filter: blur(24px) saturate(125%);
 }
 
+.axis-compass {
+  width: 340px;
+  overflow: hidden;
+  border: 1px solid rgba(146, 194, 229, 0.09);
+  border-radius: 13px;
+  background: linear-gradient(145deg, rgba(7, 14, 24, 0.82), rgba(4, 9, 16, 0.64));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 18px 52px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(18px);
+}
+
+.axis-cell {
+  display: grid;
+  min-width: 0;
+  padding: 9px 10px 10px;
+  background: rgba(5, 11, 20, 0.88);
+}
+
+.axis-cell b {
+  font-family: var(--font-code);
+  font-size: 13px;
+}
+
+.axis-cell span {
+  margin-top: 3px;
+  color: rgba(211, 224, 237, 0.7);
+  font-family: var(--font-code);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.axis-cell small {
+  overflow: hidden;
+  margin-top: 2px;
+  color: rgba(112, 135, 159, 0.58);
+  font-family: var(--font-code);
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .eyebrow {
   color: rgba(148, 180, 206, 0.62);
   font-family: var(--font-code);
@@ -239,7 +280,140 @@
 }
 
 .cluster-count { color: rgba(122, 145, 168, 0.58); font-family: var(--font-code); font-size: 9px; }
+.source-chip {
+  --chip-color: #d9fbff;
+  display: inline-flex;
+  height: 26px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 999px;
+  color: rgba(155, 178, 201, 0.62);
+  background: rgba(5, 10, 18, 0.74);
+  font-family: var(--font-code);
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  backdrop-filter: blur(12px);
+}
+
+.source-chip > span { width: 4px; height: 4px; border-radius: 999px; }
+.source-chip.is-active {
+  border-color: color-mix(in srgb, var(--chip-color) 28%, transparent);
+  color: color-mix(in srgb, var(--chip-color) 76%, white);
+  background: color-mix(in srgb, var(--chip-color) 7%, rgba(5, 10, 18, 0.82));
+}
 .inspector { animation: inspector-in 440ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+.coordinate-card {
+  border: 1px solid rgba(126, 219, 240, 0.1);
+  border-radius: 13px;
+  padding: 13px;
+  background:
+    linear-gradient(135deg, rgba(83, 231, 255, 0.045), transparent 48%),
+    rgba(255, 255, 255, 0.018);
+}
+
+.coordinate-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.coordinate-row > b {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  font-family: var(--font-code);
+  font-size: 8px;
+  opacity: 0.74;
+}
+
+.coordinate-row > span,
+.coordinate-row > span small,
+.coordinate-row > span strong,
+.coordinate-row > span em {
+  display: block;
+  min-width: 0;
+}
+
+.coordinate-row > span small {
+  color: rgba(117, 139, 162, 0.58);
+  font-size: 8px;
+}
+
+.coordinate-row > span strong {
+  overflow: hidden;
+  margin-top: 1px;
+  color: rgba(222, 233, 243, 0.78);
+  font-family: var(--font-code);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coordinate-row > span em {
+  overflow: hidden;
+  margin-top: 2px;
+  color: rgba(140, 165, 189, 0.56);
+  font-family: var(--font-code);
+  font-size: 8px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coordinate-row > span i {
+  display: block;
+  height: 2px;
+  margin-top: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.coordinate-row > span i span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #53e7ff, #60f2bc);
+  box-shadow: 0 0 10px rgba(96, 242, 188, 0.4);
+}
+
+.coordinate-row > code {
+  color: rgba(151, 178, 201, 0.48);
+  font-family: var(--font-code);
+  font-size: 8px;
+}
+
+.evidence-reason {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  border-radius: 8px;
+  color: rgba(182, 203, 222, 0.68);
+  background: rgba(255, 255, 255, 0.018);
+  font-size: 10px;
+}
+
+.evidence-reason > span {
+  width: 4px;
+  height: 4px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #60f2bc;
+  box-shadow: 0 0 8px rgba(96, 242, 188, 0.6);
+}
 
 .section-label {
   display: flex;
