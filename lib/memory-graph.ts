@@ -86,14 +86,14 @@ export const timeTicks = [
 ] as const;
 
 export const clusters: MemoryCluster[] = [
-  { id: 'identity', label: 'IDENTITY', korean: '인증 · 세션', color: '#53e7ff', glow: 'rgba(83,231,255,.42)', lane: 0, modules: ['auth-api', 'session-core', 'access-policy'] },
-  { id: 'payment', label: 'PAYMENT', korean: '결제 · 정산', color: '#a978ff', glow: 'rgba(169,120,255,.42)', lane: 1, modules: ['balance-query', 'settlement-core', 'payment-gateway'] },
-  { id: 'order', label: 'ORDER', korean: '주문 · 체결', color: '#ff5fa2', glow: 'rgba(255,95,162,.38)', lane: 2, modules: ['order-api', 'execution-core', 'trade-event'] },
-  { id: 'data', label: 'DATA', korean: '데이터 · 배치', color: '#5d91ff', glow: 'rgba(93,145,255,.42)', lane: 3, modules: ['warehouse-etl', 'market-batch', 'reporting'] },
-  { id: 'platform', label: 'PLATFORM', korean: '공통 플랫폼', color: '#55f2b4', glow: 'rgba(85,242,180,.38)', lane: 4, modules: ['cache-sdk', 'event-sdk', 'config-core'] },
-  { id: 'infra', label: 'INFRA', korean: '인프라 · 배포', color: '#ffb353', glow: 'rgba(255,179,83,.4)', lane: 5, modules: ['kubernetes', 'release-pipeline', 'network'] },
-  { id: 'frontend', label: 'EXPERIENCE', korean: '프론트 · UX', color: '#b9f255', glow: 'rgba(185,242,85,.35)', lane: 6, modules: ['trading-web', 'account-app', 'design-system'] },
-  { id: 'observability', label: 'OPERATIONS', korean: '관측 · 장애', color: '#ff6b6b', glow: 'rgba(255,107,107,.4)', lane: 7, modules: ['alerting', 'incident-runbook', 'telemetry'] },
+  { id: 'identity', label: 'IDENTITY', korean: '인증 · 세션', color: '#416f72', glow: 'rgba(65,111,114,.24)', lane: 0, modules: ['auth-api', 'session-core', 'access-policy'] },
+  { id: 'payment', label: 'PAYMENT', korean: '결제 · 정산', color: '#6d5c78', glow: 'rgba(109,92,120,.22)', lane: 1, modules: ['balance-query', 'settlement-core', 'payment-gateway'] },
+  { id: 'order', label: 'ORDER', korean: '주문 · 체결', color: '#8b5960', glow: 'rgba(139,89,96,.22)', lane: 2, modules: ['order-api', 'execution-core', 'trade-event'] },
+  { id: 'data', label: 'DATA', korean: '데이터 · 배치', color: '#4d6384', glow: 'rgba(77,99,132,.22)', lane: 3, modules: ['warehouse-etl', 'market-batch', 'reporting'] },
+  { id: 'platform', label: 'PLATFORM', korean: '공통 플랫폼', color: '#52705d', glow: 'rgba(82,112,93,.22)', lane: 4, modules: ['cache-sdk', 'event-sdk', 'config-core'] },
+  { id: 'infra', label: 'INFRA', korean: '인프라 · 배포', color: '#8a6843', glow: 'rgba(138,104,67,.22)', lane: 5, modules: ['kubernetes', 'release-pipeline', 'network'] },
+  { id: 'frontend', label: 'EXPERIENCE', korean: '프론트 · UX', color: '#71814f', glow: 'rgba(113,129,79,.22)', lane: 6, modules: ['trading-web', 'account-app', 'design-system'] },
+  { id: 'observability', label: 'OPERATIONS', korean: '관측 · 장애', color: '#8a514b', glow: 'rgba(138,81,75,.22)', lane: 7, modules: ['alerting', 'incident-runbook', 'telemetry'] },
 ];
 
 export const storyPath = ['query-current', 'story-symptom', 'story-duplicate', 'story-decision', 'story-change', 'story-incident', 'story-resolution'];
@@ -105,7 +105,7 @@ export const storyChapters = [
   { id: 'story-decision', step: '04', label: 'INTENT', title: '기획 의도 복원', caption: '10개월 전 설계 의도가 3단계 History Tree 안에서 복원됩니다.' },
   { id: 'story-change', step: '05', label: 'CODE CHANGE', title: '변경 영향 추적', caption: '같은 cache-sdk 파일군이 밝은 직접 관계로 다시 강조됩니다.' },
   { id: 'story-incident', step: '06', label: 'SIDE EFFECT', title: '과거 장애 경고', caption: '캐시 우회가 DB 고갈로 이어진 과거 가지를 별도로 경고합니다.' },
-  { id: 'story-resolution', step: '07', label: 'HISTORY BRIEF', title: '필요 맥락 완성', caption: '남은 성운은 지층에 두고 필요한 히스토리만 Brief로 컴파일합니다.' },
+  { id: 'story-resolution', step: '07', label: 'HISTORY BRIEF', title: '필요 맥락 완성', caption: '나머지 기록은 여백에 남기고 필요한 히스토리만 Brief로 컴파일합니다.' },
 ];
 
 const titles = [
@@ -127,10 +127,10 @@ function mulberry32(seed: number) {
 }
 
 function nodeColor(kind: MemoryKind, clusterColor: string) {
-  if (kind === 'query') return '#ffffff';
-  if (kind === 'incident') return '#ff5f7f';
-  if (kind === 'decision') return '#aa7cff';
-  if (kind === 'resolution') return '#60f2bc';
+  if (kind === 'query') return '#292b27';
+  if (kind === 'incident') return '#9a4d48';
+  if (kind === 'decision') return '#6f5b78';
+  if (kind === 'resolution') return '#4f7463';
   return clusterColor;
 }
 
@@ -177,8 +177,8 @@ function storySeed(spec: {
 
 function storyNodes(): MemoryNode[] {
   return [
-    storySeed({ id: 'query-current', issueKey: 'QUERY · NOW', name: '결제 승인 후 잔액이 간헐적으로 반영되지 않음', kind: 'query', cluster: 'payment', date: '2026.09.02 09:42', occurredAt: '2026-09-02', owner: 'Trading Experience TF', module: 'balance-query', primaryFile: 'trade-cache.yml', source: 'payment/balance-query/config/trade-cache.yml', relevance: 1, reasons: ['현재 분석 기준 Query Issue', '결제 잔액과 캐시 지연 키워드'], summary: '승인 완료 후 잔액 갱신이 3~8초 지연됩니다.', intent: '승인 직후 확정 상태를 확인할 수 있어야 합니다.', resolution: '과거 Memory Graph 탐색 중', risk: '캐시 우회 시 조회 트래픽이 급증할 수 있습니다.', moduleIndex: 0, fileIndex: 1, jitter: 0, color: '#ffffff' }),
-    storySeed({ id: 'story-symptom', issueKey: 'PAY-2194', name: '체결 직후 예수금 조회가 이전 값으로 노출', kind: 'issue', cluster: 'payment', date: '2026.06.18', occurredAt: '2026-06-18', owner: '자산조회팀', module: 'balance-query', primaryFile: 'BalanceReader.kt', source: 'payment/balance-query/src/BalanceReader.kt', relevance: 0.91, reasons: ['증상 문장 임베딩 94%', '동일 balance-query 모듈', '최근 90일 내 처리'], summary: '동일한 화면 증상이었지만 원인은 읽기 복제본 지연이었습니다.', intent: '조회 일관성과 응답 속도 사이의 기존 합의를 유지합니다.', resolution: '체결 후 5초 동안 primary read를 사용했습니다.', risk: '전체 요청에 적용하면 DB 부하가 31% 증가합니다.', moduleIndex: 0, fileIndex: 0, jitter: -3, color: '#ff5fa2' }),
+    storySeed({ id: 'query-current', issueKey: 'QUERY · NOW', name: '결제 승인 후 잔액이 간헐적으로 반영되지 않음', kind: 'query', cluster: 'payment', date: '2026.09.02 09:42', occurredAt: '2026-09-02', owner: 'Trading Experience TF', module: 'balance-query', primaryFile: 'trade-cache.yml', source: 'payment/balance-query/config/trade-cache.yml', relevance: 1, reasons: ['현재 분석 기준 Query Issue', '결제 잔액과 캐시 지연 키워드'], summary: '승인 완료 후 잔액 갱신이 3~8초 지연됩니다.', intent: '승인 직후 확정 상태를 확인할 수 있어야 합니다.', resolution: '과거 Memory Graph 탐색 중', risk: '캐시 우회 시 조회 트래픽이 급증할 수 있습니다.', moduleIndex: 0, fileIndex: 1, jitter: 0, color: '#292b27' }),
+    storySeed({ id: 'story-symptom', issueKey: 'PAY-2194', name: '체결 직후 예수금 조회가 이전 값으로 노출', kind: 'issue', cluster: 'payment', date: '2026.06.18', occurredAt: '2026-06-18', owner: '자산조회팀', module: 'balance-query', primaryFile: 'BalanceReader.kt', source: 'payment/balance-query/src/BalanceReader.kt', relevance: 0.91, reasons: ['증상 문장 임베딩 94%', '동일 balance-query 모듈', '최근 90일 내 처리'], summary: '동일한 화면 증상이었지만 원인은 읽기 복제본 지연이었습니다.', intent: '조회 일관성과 응답 속도 사이의 기존 합의를 유지합니다.', resolution: '체결 후 5초 동안 primary read를 사용했습니다.', risk: '전체 요청에 적용하면 DB 부하가 31% 증가합니다.', moduleIndex: 0, fileIndex: 0, jitter: -3, color: '#8b5960' }),
     storySeed({ id: 'story-duplicate', issueKey: 'ORD-1842', name: '주문팀에서 동일 증상을 이미 우회 처리', kind: 'resolution', cluster: 'order', date: '2026.07.03', occurredAt: '2026-07-03', owner: '주문플랫폼팀', module: 'trade-event', primaryFile: 'EventWatermark.java', source: 'order/trade-event/src/EventWatermark.java', relevance: 0.83, reasons: ['동일 거래 이벤트 계약', 'watermark 해결책 재사용 가능'], summary: '주문팀이 같은 이벤트 지연을 idempotency token으로 방어했습니다.', intent: '팀별 패치 대신 공통 이벤트 계약으로 수렴합니다.', resolution: '공통 SDK에 transaction watermark를 추가했습니다.', risk: '별도 큐를 만들면 중복 인프라가 생깁니다.', moduleIndex: 2, fileIndex: 0, jitter: 2 }),
     storySeed({ id: 'story-decision', issueKey: 'ADR-076', name: '승인 응답과 잔액 확정 이벤트를 분리한 이유', kind: 'decision', cluster: 'platform', date: '2025.11.21', occurredAt: '2025-11-21', owner: 'Architecture Council', module: 'event-sdk', primaryFile: 'ADR-076.md', source: 'platform/event-sdk/docs/ADR-076.md', relevance: 0.76, reasons: ['비동기 확정 이벤트 설계 근거', '현재 수정의 성능 제약 설명'], summary: '피크 트래픽에서 승인 경로를 보호하기 위한 의사결정입니다.', intent: '승인 API P99 120ms 이하가 최우선입니다.', resolution: '확정 이벤트를 비동기 처리하고 UI에서 진행 상태를 표현합니다.', risk: '동기 처리로 되돌리면 피크 장애가 재현됩니다.', moduleIndex: 1, fileIndex: 0, jitter: 1 }),
     storySeed({ id: 'story-change', issueKey: 'CORE-1440', name: '공통 Redis 캐시 키 전략 변경', kind: 'code', cluster: 'platform', date: '2026.08.27', occurredAt: '2026-08-27', owner: 'Core Platform', module: 'cache-sdk', primaryFile: 'CacheKeyV3.ts', source: 'platform/cache-sdk/src/CacheKeyV3.ts', relevance: 0.88, reasons: ['동일 Redis 캐시 키 계보', '현재 이슈 6일 전 변경'], summary: '거래일을 추가하면서 만료 순서가 달라졌습니다.', intent: '영업일 전환 시 이전 거래일 데이터 혼입을 방지합니다.', resolution: '버전 키와 거래일 키를 함께 사용합니다.', risk: '구버전 소비자는 invalidation 이벤트를 해석하지 못합니다.', moduleIndex: 0, fileIndex: 0, jitter: -2 }),

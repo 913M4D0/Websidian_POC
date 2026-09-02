@@ -13,7 +13,6 @@ import {
   GitBranch,
   Maximize2,
   Network,
-  Orbit,
   Pause,
   Play,
   RotateCcw,
@@ -97,13 +96,16 @@ type GraphInstance = {
     update: () => void;
   };
   camera: () => import('three').PerspectiveCamera;
+  renderer: () => import('three').WebGLRenderer;
+  graph2ScreenCoords: (x: number, y: number, z: number) => { x: number; y: number };
   scene: () => { add: (object: unknown) => void };
   refresh: () => GraphInstance;
   _destructor?: () => void;
-  postProcessingComposer?: () => { addPass: (pass: unknown) => void };
 };
 
 type GravitySummary = Pick<GravityLayout, 'directCount' | 'treeCount' | 'sedimentCount'>;
+
+type GraphSafeRect = { left: number; right: number; top: number; bottom: number };
 
 const kindLabels: Record<MemoryNode['kind'], string> = {
   query: 'QUERY NODE',
@@ -140,6 +142,39 @@ function escapeGraphLabel(value: string) {
   })[character] ?? character);
 }
 
+function measureGraphSafeRect(container: HTMLElement): GraphSafeRect {
+  const bounds = container.getBoundingClientRect();
+  const width = Math.max(1, bounds.width);
+  const height = Math.max(1, bounds.height);
+  const safeRect: GraphSafeRect = { left: 18, right: width - 18, top: 18, bottom: height - 18 };
+  const shell = container.closest('main') ?? document;
+
+  for (const obstruction of shell.querySelectorAll<HTMLElement>('[data-graph-obstruction]')) {
+    const rect = obstruction.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) continue;
+    const left = rect.left - bounds.left;
+    const right = rect.right - bounds.left;
+    const top = rect.top - bounds.top;
+    const bottom = rect.bottom - bounds.top;
+    const edge = obstruction.dataset.graphObstruction;
+
+    if (edge === 'top') safeRect.top = Math.max(safeRect.top, bottom + 18);
+    if (edge === 'left') safeRect.left = Math.max(safeRect.left, right + 18);
+    if (edge === 'bottom') safeRect.bottom = Math.min(safeRect.bottom, top - 18);
+    if (edge === 'adaptive') {
+      if (rect.width >= width * 0.62) safeRect.bottom = Math.min(safeRect.bottom, top - 24);
+      else safeRect.right = Math.min(safeRect.right, left - 24);
+    }
+  }
+
+  if (safeRect.right - safeRect.left < 96) {
+    safeRect.left = 18;
+    safeRect.right = width - 18;
+  }
+  if (safeRect.bottom - safeRect.top < 64) safeRect.bottom = Math.min(height - 18, safeRect.top + 64);
+  return safeRect;
+}
+
 /* oxlint-disable react/react-compiler -- The imperative WebGL lifecycle is intentionally isolated from React compilation. */
 function GraphStage({
   nodes,
@@ -148,8 +183,8 @@ function GraphStage({
   selectedId,
   activeCluster,
   activeStoryIndex,
-  autoRotate,
   viewResetVersion,
+  selectionFocusVersion,
   onSelect,
   onGravityChange,
   onReady,
@@ -161,8 +196,8 @@ function GraphStage({
   selectedId: string | null;
   activeCluster: string | null;
   activeStoryIndex: number;
-  autoRotate: boolean;
   viewResetVersion: number;
+  selectionFocusVersion: number;
   onSelect: (node: MemoryNode | null) => void;
   onGravityChange: (summary: GravitySummary | null) => void;
   onReady: () => void;
@@ -171,20 +206,27 @@ function GraphStage({
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<GraphInstance | null>(null);
   const [graphMounted, setGraphMounted] = useState(false);
+  const [viewportVersion, setViewportVersion] = useState(0);
+  const [layoutSettledVersion, setLayoutSettledVersion] = useState(0);
   const runtimeNodesRef = useRef<MemoryNode[]>([]);
   const nebulaPositionsRef = useRef<Map<string, GraphPosition>>(new Map());
   const gravityLayoutRef = useRef<GravityLayout | null>(null);
   const threeRef = useRef<typeof import('three') | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const pointerFrameRef = useRef<number | null>(null);
   const hoveredIdRef = useRef<string | null>(null);
+  const pointerStateRef = useRef({ x: -1000, y: -1000, active: false, pressed: false, lastFrame: 0 });
+  const nodeObjectRefs = useRef<Map<string, import('three').Group>>(new Map());
   const neighborIdsRef = useRef<Map<string, Set<string>>>(new Map());
   const nebulaMaterialsRef = useRef<Array<{ opacity: number }>>([]);
   const floorMaterialsRef = useRef<Array<{ opacity: number }>>([]);
   const floorGroupRef = useRef<import('three').Group | null>(null);
   const gravityCameraRef = useRef<{ position: GraphPosition; target: GraphPosition } | null>(null);
+  const gravityOverviewCameraRef = useRef<{ position: GraphPosition; target: GraphPosition } | null>(null);
+  const selectionFocusFrameRef = useRef<number | null>(null);
   const nodesRef = useRef(nodes);
   const linksRef = useRef(links);
-  const stateRef = useRef({ gravityRootId, selectedId, activeCluster, activeStoryIndex, autoRotate });
+  const stateRef = useRef({ gravityRootId, selectedId, activeCluster, activeStoryIndex });
   const onSelectRef = useRef(onSelect);
   const onGravityChangeRef = useRef(onGravityChange);
   const onReadyRef = useRef(onReady);
@@ -193,7 +235,7 @@ function GraphStage({
 
   nodesRef.current = nodes;
   linksRef.current = links;
-  stateRef.current = { gravityRootId, selectedId, activeCluster, activeStoryIndex, autoRotate };
+  stateRef.current = { gravityRootId, selectedId, activeCluster, activeStoryIndex };
   onSelectRef.current = onSelect;
   onGravityChangeRef.current = onGravityChange;
   onReadyRef.current = onReady;
@@ -203,8 +245,18 @@ function GraphStage({
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
     let motionQuery: MediaQueryList | null = null;
+    let disposePointerInteraction: (() => void) | null = null;
+    const nodeObjects = nodeObjectRefs.current;
     const updateMotionPreference = (event: MediaQueryListEvent | MediaQueryList) => {
       reducedMotionRef.current = event.matches;
+      if (event.matches) {
+        pointerStateRef.current.active = false;
+        for (const marker of nodeObjects.values()) {
+          const object = marker.parent;
+          object?.scale.setScalar(1);
+          if (object) object.rotation.set(0, 0, 0);
+        }
+      }
     };
 
     async function mountGraph() {
@@ -220,10 +272,9 @@ function GraphStage({
         motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
         updateMotionPreference(motionQuery);
         motionQuery.addEventListener('change', updateMotionPreference);
-        const [{ default: ForceGraph3D }, THREE, { UnrealBloomPass }] = await Promise.all([
+        const [{ default: ForceGraph3D }, THREE] = await Promise.all([
           import('3d-force-graph'),
           import('three'),
-          import('three/addons/postprocessing/UnrealBloomPass.js'),
         ]);
         if (cancelled || !containerRef.current) return;
         threeRef.current = THREE;
@@ -276,7 +327,7 @@ function GraphStage({
         };
 
         graph
-          .backgroundColor('rgba(2,4,10,0)')
+          .backgroundColor('rgba(0,0,0,0)')
           .width(containerRef.current.clientWidth)
           .height(containerRef.current.clientHeight)
           .graphData({
@@ -291,7 +342,7 @@ function GraphStage({
             const hover = hoveredIdRef.current;
             const selectedNeighbor = Boolean(state.selectedId && neighborIdsRef.current.get(state.selectedId)?.has(node.id));
             const hoverNeighbor = Boolean(hover && neighborIdsRef.current.get(hover)?.has(node.id));
-            if (node.id === hover || node.id === state.selectedId || node.id === state.gravityRootId) return '#ffffff';
+            if (node.id === hover || node.id === state.selectedId || node.id === state.gravityRootId) return '#232722';
             if (selectedNeighbor || hoverNeighbor) return node.color;
             if (hover || state.selectedId) {
               const focusDepth = gravity?.depthById.get(node.id);
@@ -331,57 +382,57 @@ function GraphStage({
             const gravity = gravityLayoutRef.current;
             const depth = gravity?.depthById.get(node.id);
             const state = stateRef.current;
-            if (!(node.isHub || node.isStory || node.id === state.selectedId || node.id === state.gravityRootId || node.id === hoveredIdRef.current || depth === 1)) return undefined;
             const group = new THREE.Group();
+            nodeObjects.set(node.id, group);
+            if (!(node.isHub || node.isStory || node.id === state.selectedId || node.id === state.gravityRootId || node.id === hoveredIdRef.current || depth === 1)) return group;
             const sprite = new SpriteText(node.isHub ? node.clusterLabel.toUpperCase() : node.issueKey);
-            sprite.color = node.id === state.selectedId || node.id === state.gravityRootId || node.id === hoveredIdRef.current ? '#ffffff' : node.color;
+            sprite.color = node.id === state.selectedId || node.id === state.gravityRootId || node.id === hoveredIdRef.current ? '#232722' : node.color;
             sprite.textHeight = node.isHub ? 5.1 : depth === 1 ? 2.7 : 3.2;
             sprite.fontWeight = node.isHub ? '700' : '600';
-            sprite.backgroundColor = node.id === state.selectedId || node.id === state.gravityRootId ? 'rgba(4,8,18,.78)' : false;
+            sprite.backgroundColor = node.id === state.selectedId || node.id === state.gravityRootId ? 'rgba(244,239,227,.9)' : false;
             sprite.padding = node.id === state.selectedId || node.id === state.gravityRootId ? [3, 5] : 0;
-            sprite.borderRadius = 5;
+            sprite.borderRadius = 1;
             sprite.position.y = node.isHub ? 12 : 8;
             group.add(sprite);
 
             if (node.kind === 'query' || node.id === state.selectedId || node.id === state.gravityRootId || node.id === hoveredIdRef.current) {
-              const ringColor = node.kind === 'query' ? '#c9fbff' : node.color;
+              const ringColor = node.id === state.selectedId || node.id === hoveredIdRef.current ? '#8c5149' : '#344f46';
               const ring = new THREE.Mesh(
-                new THREE.TorusGeometry(node.kind === 'query' ? 11.5 : 8.5, 0.32, 10, 64),
-                new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: 0.72 }),
+                new THREE.TorusGeometry(node.kind === 'query' ? 11.5 : 8.5, 0.18, 8, 64),
+                new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: 0.76 }),
               );
               const orbit = new THREE.Mesh(
-                new THREE.TorusGeometry(node.kind === 'query' ? 16 : 11.5, 0.12, 8, 64),
-                new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: 0.34 }),
+                new THREE.TorusGeometry(node.kind === 'query' ? 13.2 : 9.8, 0.09, 7, 64),
+                new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: 0.4 }),
               );
-              orbit.rotation.x = Math.PI * 0.62;
-              orbit.rotation.z = Math.PI * 0.15;
+              orbit.position.set(0.45, -0.3, -0.25);
+              orbit.rotation.z = Math.PI * 0.025;
               group.add(ring, orbit);
             }
             return group;
           })
           .linkColor((link) => {
-            if (isDirectHighlight(link)) return '#d9fbff';
-            if (isPrimaryTreeLink(link)) return 'rgba(117,219,255,.68)';
-            if (isFocusedCrossLink(link)) return 'rgba(169,120,255,.32)';
+            if (isDirectHighlight(link)) return 'rgba(38,58,51,.9)';
+            if (isPrimaryTreeLink(link)) return 'rgba(52,79,70,.62)';
+            if (isFocusedCrossLink(link)) return 'rgba(125,91,73,.3)';
             const source = nodesRef.current.find((node) => node.id === linkEndpointId(link.source));
-            if (gravityLayoutRef.current) return 'rgba(71,104,137,.065)';
-            if (stateRef.current.activeCluster && source?.cluster !== stateRef.current.activeCluster) return 'rgba(53,75,110,.08)';
-            return source ? hexToRgba(source.color, 0.16 + link.score * 0.09) : 'rgba(80,123,174,.16)';
+            if (gravityLayoutRef.current) return 'rgba(52,55,50,.09)';
+            if (stateRef.current.activeCluster && source?.cluster !== stateRef.current.activeCluster) return 'rgba(52,55,50,.07)';
+            return source ? hexToRgba(source.color, 0.2 + link.score * 0.08) : 'rgba(52,55,50,.18)';
           })
-          .linkWidth((link) => isDirectHighlight(link) ? 1.55 : 0)
+          .linkWidth((link) => isDirectHighlight(link) ? 0.95 : 0)
           .linkOpacity(1)
-          .linkDirectionalParticles((link) => (!reducedMotionRef.current && isDirectHighlight(link) ? 3 : 0))
-          .linkDirectionalParticleWidth((link) => (isDirectHighlight(link) ? 2.4 : 0))
-          .linkDirectionalParticleColor(() => '#d9fbff')
-          .linkDirectionalParticleSpeed((link) => (isDirectHighlight(link) ? 0.007 : 0))
-          .linkDirectionalArrowLength((link) => (isDirectHighlight(link) ? 2.6 : 0))
+          .linkDirectionalParticles(() => 0)
+          .linkDirectionalParticleWidth(() => 0)
+          .linkDirectionalParticleColor(() => '#344f46')
+          .linkDirectionalParticleSpeed(() => 0)
+          .linkDirectionalArrowLength((link) => (isDirectHighlight(link) ? 1.45 : 0))
           .linkCurvature((link) => gravityLayoutRef.current
             ? isFocusedCrossLink(link) ? 0.065 : 0
             : link.story ? 0.08 : Math.max(0.015, (link.score - 0.35) * 0.04))
           .onNodeClick((node) => onSelectRef.current(node))
           .onNodeHover((node) => {
             hoveredIdRef.current = node?.id ?? null;
-            if (containerRef.current) containerRef.current.style.cursor = node ? 'pointer' : 'grab';
             graphRef.current?.refresh();
           })
           .onBackgroundClick(() => onSelectRef.current(null))
@@ -391,26 +442,20 @@ function GraphStage({
           .onEngineStop(() => onReadyRef.current());
 
         const controls = graph.controls();
-        controls.autoRotate = !reducedMotionRef.current && stateRef.current.autoRotate;
-        controls.autoRotateSpeed = 0.22;
+        controls.autoRotate = false;
         graph.cameraPosition({ x: 0, y: 24, z: 690 }, { x: 0, y: -16, z: 0 }, 0);
-
-        const composer = graph.postProcessingComposer?.();
-        if (composer) {
-          composer.addPass(new UnrealBloomPass(new THREE.Vector2(element.clientWidth, element.clientHeight), 0.82, 0.9, 0.18));
-        }
 
         const nebulaMaterials: Array<{ opacity: number }> = [];
         for (const cluster of clusters) {
           const center = nebulaCenters.get(cluster.id) ?? { x: 0, y: 0, z: 0 };
           const dustGeometry = new THREE.BufferGeometry();
-          const dust = new Float32Array(150 * 3);
+          const dust = new Float32Array(72 * 3);
           let seed = 913 + cluster.lane * 177;
           const random = () => {
             seed = (seed * 1664525 + 1013904223) >>> 0;
             return seed / 4294967296;
           };
-          for (let index = 0; index < 150; index += 1) {
+          for (let index = 0; index < 72; index += 1) {
             const radius = Math.pow(random(), 0.72);
             const theta = random() * Math.PI * 2;
             const phi = Math.acos(2 * random() - 1);
@@ -419,16 +464,16 @@ function GraphStage({
             dust[index * 3 + 2] = center.z + Math.cos(phi) * radius * 92;
           }
           dustGeometry.setAttribute('position', new THREE.BufferAttribute(dust, 3));
-          const material = new THREE.PointsMaterial({ color: cluster.color, size: 1.3, transparent: true, opacity: 0.2, sizeAttenuation: true, depthWrite: false, blending: THREE.AdditiveBlending });
+          const material = new THREE.PointsMaterial({ color: cluster.color, size: 0.78, transparent: true, opacity: 0.085, sizeAttenuation: true, depthWrite: false });
           nebulaMaterials.push(material);
           graph.scene().add(new THREE.Points(dustGeometry, material));
         }
         nebulaMaterialsRef.current = nebulaMaterials;
 
         const floorGroup = new THREE.Group();
-        const floorPlaneMaterial = new THREE.MeshBasicMaterial({ color: '#071c28', transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+        const floorPlaneMaterial = new THREE.MeshBasicMaterial({ color: '#d8d0bf', transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
         const floorPlane = new THREE.Mesh(new THREE.PlaneGeometry(760, 440), floorPlaneMaterial);
-        const floorGrid = new THREE.GridHelper(760, 30, '#4d8ba1', '#153443');
+        const floorGrid = new THREE.GridHelper(760, 30, '#6d7d76', '#a59e8e');
         const gridMaterial = floorGrid.material as import('three').Material;
         gridMaterial.transparent = true;
         gridMaterial.opacity = 0;
@@ -438,28 +483,103 @@ function GraphStage({
         floorMaterialsRef.current = [floorPlaneMaterial, gridMaterial];
         graph.scene().add(floorGroup);
 
-        const starGeometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(520 * 3);
-        let starSeed = 913;
-        const starRandom = () => {
-          starSeed = (starSeed * 1664525 + 1013904223) >>> 0;
-          return starSeed / 4294967296;
+        const canvas = graph.renderer().domElement;
+        const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
+        const requestPointerFrame = () => {
+          if (pointerFrameRef.current === null) pointerFrameRef.current = window.requestAnimationFrame(updatePointerObjects);
         };
-        for (let index = 0; index < 520; index += 1) {
-          const radius = 700 + starRandom() * 620;
-          const theta = starRandom() * Math.PI * 2;
-          const phi = Math.acos(2 * starRandom() - 1);
-          positions[index * 3] = radius * Math.sin(phi) * Math.cos(theta);
-          positions[index * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
-          positions[index * 3 + 2] = radius * Math.cos(phi);
-        }
-        starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        graph.scene().add(new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: '#8eb8d9', size: 0.7, transparent: true, opacity: 0.24, sizeAttenuation: true })));
+
+        const updatePointerObjects = (timestamp: number) => {
+          pointerFrameRef.current = null;
+          const pointer = pointerStateRef.current;
+          if (timestamp - pointer.lastFrame < 30) {
+            requestPointerFrame();
+            return;
+          }
+          const deltaSeconds = pointer.lastFrame ? Math.min(0.05, (timestamp - pointer.lastFrame) / 1000) : 1 / 30;
+          pointer.lastFrame = timestamp;
+          const canRespond = pointer.active && !pointer.pressed && !reducedMotionRef.current
+            && animationFrameRef.current === null && selectionFocusFrameRef.current === null;
+          const blend = 1 - Math.exp(-14 * deltaSeconds);
+          let unsettled = false;
+
+          for (const node of runtimeNodesRef.current) {
+            const marker = nodeObjects.get(node.id);
+            const object = marker?.parent;
+            if (!object) continue;
+            let strength = 0;
+            let tiltX = 0;
+            let tiltY = 0;
+            if (canRespond) {
+              const screen = graph.graph2ScreenCoords(node.x, node.y, node.z);
+              const differenceX = screen.x - pointer.x;
+              const differenceY = screen.y - pointer.y;
+              const distance = Math.hypot(differenceX, differenceY);
+              if (distance < 120) {
+                strength = Math.pow(1 - distance / 120, 2);
+                tiltX = Math.max(-0.052, Math.min(0.052, -differenceY / 120 * 0.052 * strength));
+                tiltY = Math.max(-0.052, Math.min(0.052, differenceX / 120 * 0.052 * strength));
+              }
+            }
+            const targetScale = 1 + strength * 0.045;
+            const nextScale = object.scale.x + (targetScale - object.scale.x) * blend;
+            object.scale.setScalar(nextScale);
+            object.rotation.x += (tiltX - object.rotation.x) * blend;
+            object.rotation.y += (tiltY - object.rotation.y) * blend;
+            if (Math.abs(targetScale - nextScale) > 0.0006 || Math.abs(tiltX - object.rotation.x) > 0.0006 || Math.abs(tiltY - object.rotation.y) > 0.0006) unsettled = true;
+          }
+
+          if (unsettled) requestPointerFrame();
+          else pointer.lastFrame = 0;
+        };
+
+        const setPointerFromEvent = (event: PointerEvent) => {
+          const bounds = canvas.getBoundingClientRect();
+          const pointer = pointerStateRef.current;
+          pointer.x = event.clientX - bounds.left;
+          pointer.y = event.clientY - bounds.top;
+          pointer.pressed = event.buttons !== 0;
+          pointer.active = finePointer.matches && event.pointerType !== 'touch' && !pointer.pressed
+            && pointer.x >= 0 && pointer.x <= bounds.width && pointer.y >= 0 && pointer.y <= bounds.height;
+          requestPointerFrame();
+        };
+        const deactivatePointer = () => {
+          pointerStateRef.current.active = false;
+          pointerStateRef.current.pressed = false;
+          requestPointerFrame();
+        };
+        const pressPointer = () => {
+          pointerStateRef.current.pressed = true;
+          pointerStateRef.current.active = false;
+          requestPointerFrame();
+        };
+        canvas.addEventListener('pointermove', setPointerFromEvent, { passive: true });
+        canvas.addEventListener('pointerdown', pressPointer, { passive: true });
+        canvas.addEventListener('pointerup', setPointerFromEvent, { passive: true });
+        canvas.addEventListener('pointerleave', deactivatePointer, { passive: true });
+        canvas.addEventListener('pointercancel', deactivatePointer, { passive: true });
+        disposePointerInteraction = () => {
+          canvas.removeEventListener('pointermove', setPointerFromEvent);
+          canvas.removeEventListener('pointerdown', pressPointer);
+          canvas.removeEventListener('pointerup', setPointerFromEvent);
+          canvas.removeEventListener('pointerleave', deactivatePointer);
+          canvas.removeEventListener('pointercancel', deactivatePointer);
+        };
+
         setGraphMounted(true);
         window.requestAnimationFrame(() => onReadyRef.current());
 
+        let observedWidth = element.clientWidth;
+        let observedHeight = element.clientHeight;
         resizeObserver = new ResizeObserver(([entry]) => {
-          graph.width(entry.contentRect.width).height(entry.contentRect.height);
+          const nextWidth = entry.contentRect.width;
+          const nextHeight = entry.contentRect.height;
+          graph.width(nextWidth).height(nextHeight);
+          if (Math.abs(nextWidth - observedWidth) > 1 || Math.abs(nextHeight - observedHeight) > 1) {
+            observedWidth = nextWidth;
+            observedHeight = nextHeight;
+            setViewportVersion((version) => version + 1);
+          }
         });
         resizeObserver.observe(element);
       } catch (error) {
@@ -473,7 +593,11 @@ function GraphStage({
       cancelled = true;
       resizeObserver?.disconnect();
       motionQuery?.removeEventListener('change', updateMotionPreference);
+      disposePointerInteraction?.();
       if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
+      if (pointerFrameRef.current !== null) window.cancelAnimationFrame(pointerFrameRef.current);
+      if (selectionFocusFrameRef.current !== null) window.cancelAnimationFrame(selectionFocusFrameRef.current);
+      nodeObjects.clear();
       graphRef.current?._destructor?.();
       graphRef.current = null;
     };
@@ -482,9 +606,9 @@ function GraphStage({
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph) return;
-    graph.controls().autoRotate = !reducedMotionRef.current && autoRotate && !gravityRootId;
+    graph.controls().autoRotate = false;
     graph.refresh();
-  }, [activeCluster, activeStoryIndex, autoRotate, gravityRootId, selectedId]);
+  }, [activeCluster, activeStoryIndex, gravityRootId, selectedId]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -493,6 +617,7 @@ function GraphStage({
     if (!graphMounted || !graph || !THREE || !runtimeNodes.length) return;
 
     if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
+    if (selectionFocusFrameRef.current !== null) window.cancelAnimationFrame(selectionFocusFrameRef.current);
     const starts = new Map(runtimeNodes.map((node) => [node.id, { x: node.x, y: node.y, z: node.z }]));
     const floorGroup = floorGroupRef.current;
     const camera = graph.camera();
@@ -533,16 +658,7 @@ function GraphStage({
       const container = containerRef.current;
       const width = Math.max(1, container?.clientWidth ?? window.innerWidth);
       const height = Math.max(1, container?.clientHeight ?? window.innerHeight);
-      const usesBottomSheet = width < 1024;
-      const safeRect = {
-        left: (width >= 1280 ? 286 : 20) + 18,
-        right: width - (usesBottomSheet ? 20 : 430) - 18,
-        top: (usesBottomSheet ? 112 : 88) + 18,
-        bottom: Math.max(
-          (usesBottomSheet ? 112 : 88) + 130,
-          height - (usesBottomSheet ? 92 + height * 0.34 : 118) - 18,
-        ),
-      };
+      const safeRect = container ? measureGraphSafeRect(container) : { left: 18, right: width - 18, top: 86, bottom: height - 108 };
       const anchorVector = new THREE.Vector3(anchor.x, anchor.y, anchor.z);
       const toFrame = (position: GraphPosition, target: GraphPosition, scale: number) => ({
         position: anchorVector.clone().add(new THREE.Vector3(position.x, position.y, position.z).sub(anchorVector).multiplyScalar(scale)),
@@ -575,46 +691,30 @@ function GraphStage({
         return high;
       };
 
-      const rootProjection = anchorVector.clone().project(camera);
-      const rootScreen = {
-        x: (rootProjection.x + 1) * width / 2,
-        y: (1 - rootProjection.y) * height / 2,
+      const availableWidth = Math.max(80, safeRect.right - safeRect.left);
+      const availableHeight = Math.max(100, safeRect.bottom - safeRect.top);
+      const desiredScreen = {
+        x: safeRect.left + availableWidth / 2,
+        y: safeRect.top + Math.min(108, availableHeight * 0.24),
       };
-      const rootInsideSafeRect = rootScreen.x >= safeRect.left && rootScreen.x <= safeRect.right
-        && rootScreen.y >= safeRect.top && rootScreen.y <= safeRect.bottom;
-      let framePosition = cameraStart.position;
-      let frameTarget = cameraStart.target;
-      let fitScale = rootInsideSafeRect ? findFitScale(framePosition, frameTarget, 3.2) : null;
-
-      if (fitScale === null) {
-        const availableWidth = Math.max(80, safeRect.right - safeRect.left);
-        const availableHeight = Math.max(100, safeRect.bottom - safeRect.top);
-        const rootBand = {
-          top: safeRect.top + Math.min(36, availableHeight * 0.16),
-          bottom: safeRect.top + Math.min(126, availableHeight * 0.3),
-        };
-        const desiredScreen = {
-          x: safeRect.left + availableWidth / 2,
-          y: Math.max(rootBand.top, Math.min(rootBand.bottom, rootScreen.y)),
-        };
-        const desiredNdc = {
-          x: desiredScreen.x / width * 2 - 1,
-          y: 1 - desiredScreen.y / height * 2,
-        };
-        const rootInCamera = anchorVector.clone().applyMatrix4(camera.matrixWorldInverse);
-        const halfHeightAtRoot = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * -rootInCamera.z;
-        const cameraTranslation = rightVector.clone().multiplyScalar(rootInCamera.x - desiredNdc.x * halfHeightAtRoot * camera.aspect)
-          .add(upVector.clone().multiplyScalar(rootInCamera.y - desiredNdc.y * halfHeightAtRoot));
-        framePosition = new THREE.Vector3(cameraStart.position.x, cameraStart.position.y, cameraStart.position.z).add(cameraTranslation);
-        frameTarget = new THREE.Vector3(cameraStart.target.x, cameraStart.target.y, cameraStart.target.z).add(cameraTranslation);
-        fitScale = findFitScale(framePosition, frameTarget, 12) ?? 12;
-      }
+      const desiredNdc = {
+        x: desiredScreen.x / width * 2 - 1,
+        y: 1 - desiredScreen.y / height * 2,
+      };
+      const rootInCamera = anchorVector.clone().applyMatrix4(camera.matrixWorldInverse);
+      const halfHeightAtRoot = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * -rootInCamera.z;
+      const cameraTranslation = rightVector.clone().multiplyScalar(rootInCamera.x - desiredNdc.x * halfHeightAtRoot * camera.aspect)
+        .add(upVector.clone().multiplyScalar(rootInCamera.y - desiredNdc.y * halfHeightAtRoot));
+      const framePosition = new THREE.Vector3(cameraStart.position.x, cameraStart.position.y, cameraStart.position.z).add(cameraTranslation);
+      const frameTarget = new THREE.Vector3(cameraStart.target.x, cameraStart.target.y, cameraStart.target.z).add(cameraTranslation);
+      const fitScale = findFitScale(framePosition, frameTarget, 12) ?? 12;
 
       const framed = toFrame(framePosition, frameTarget, fitScale);
       cameraTarget = {
         position: { x: framed.position.x, y: framed.position.y, z: framed.position.z },
         target: { x: framed.target.x, y: framed.target.y, z: framed.target.z },
       };
+      gravityOverviewCameraRef.current = cameraTarget;
 
       if (floorGroup) {
         const floorCenter = new THREE.Vector3(anchor.x, anchor.y, anchor.z)
@@ -636,9 +736,9 @@ function GraphStage({
     graph.controls().autoRotate = false;
     graph.controls().enabled = reducedMotionRef.current;
     graph.refresh().cooldownTicks(Number.POSITIVE_INFINITY).d3ReheatSimulation();
-    const duration = reducedMotionRef.current ? 1 : gravityRootId ? 1900 : 1120;
+    const duration = reducedMotionRef.current ? 1 : gravityRootId ? 920 : 680;
     const startedAt = performance.now();
-    const nebulaStartOpacity = nebulaMaterialsRef.current[0]?.opacity ?? 0.2;
+    const nebulaStartOpacity = nebulaMaterialsRef.current[0]?.opacity ?? 0.085;
     const floorStartOpacity = floorMaterialsRef.current[0]?.opacity ?? 0;
     const easeOut = (value: number) => 1 - Math.pow(1 - value, 3);
     const easeInOut = (value: number) => value < 0.5 ? 4 * value * value * value : 1 - Math.pow(-2 * value + 2, 3) / 2;
@@ -658,24 +758,18 @@ function GraphStage({
         const isRoot = node.id === gravityRootId;
         const isSediment = Boolean(gravityRootId && depth === undefined);
         const delay = reducedMotionRef.current || isRoot ? 0 : isSediment
-          ? 90 + ((node.id.length * 37 + node.id.charCodeAt(0) * 13) % 260)
-          : gravityRootId ? 150 + (depth ?? 0) * 150 : ((node.id.length * 19) % 120);
+          ? 40 + ((node.id.length * 37 + node.id.charCodeAt(0) * 13) % 110)
+          : gravityRootId ? 60 + (depth ?? 0) * 62 : ((node.id.length * 19) % 70);
         const local = clamp((elapsed - delay) / Math.max(1, duration - delay));
         const horizontalProgress = easeInOut(local);
-        let verticalProgress = easeOut(local);
-        let bounce = 0;
+        let verticalProgress = easeInOut(local);
         if (isSediment) {
-          if (local < 0.84) verticalProgress = Math.pow(local / 0.84, 2);
-          else {
-            verticalProgress = 1;
-            const rebound = (local - 0.84) / 0.16;
-            bounce = Math.sin(rebound * Math.PI) * 8 * (1 - rebound);
-          }
+          verticalProgress = local * local * (3 - 2 * local);
         } else if (gravityRootId && !isRoot) {
-          verticalProgress = 1 - Math.exp(-6 * local) * Math.cos(8.5 * local);
+          verticalProgress = easeOut(local);
         }
         node.x = start.x + (target.x - start.x) * horizontalProgress;
-        node.y = start.y + (target.y - start.y) * verticalProgress + bounce;
+        node.y = start.y + (target.y - start.y) * verticalProgress;
         node.z = start.z + (target.z - start.z) * horizontalProgress;
         node.fx = node.x;
         node.fy = node.y;
@@ -683,8 +777,8 @@ function GraphStage({
       }
 
       const materialProgress = easeOut(overall);
-      const nebulaTargetOpacity = gravityRootId ? 0.048 : 0.2;
-      const floorTargetOpacity = gravityRootId ? 0.12 : 0;
+      const nebulaTargetOpacity = gravityRootId ? 0.018 : 0.085;
+      const floorTargetOpacity = gravityRootId ? 0.075 : 0;
       for (const material of nebulaMaterialsRef.current) material.opacity = nebulaStartOpacity + (nebulaTargetOpacity - nebulaStartOpacity) * materialProgress;
       for (const material of floorMaterialsRef.current) material.opacity = floorStartOpacity + (floorTargetOpacity - floorStartOpacity) * materialProgress;
       const cameraProgress = easeInOut(overall);
@@ -697,11 +791,13 @@ function GraphStage({
         animationFrameRef.current = null;
         if (!gravityRootId) {
           gravityLayoutRef.current = null;
+          gravityOverviewCameraRef.current = null;
           if (floorGroup) floorGroup.visible = false;
         }
         if (clearGravityCamera) gravityCameraRef.current = null;
         graph.controls().enabled = true;
         graph.cooldownTicks(0).refresh();
+        setLayoutSettledVersion((version) => version + 1);
       }
     };
 
@@ -710,7 +806,78 @@ function GraphStage({
       if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     };
-  }, [graphMounted, gravityRootId, nodes]);
+  }, [graphMounted, gravityRootId, nodes, viewportVersion]);
+
+  useEffect(() => {
+    const graph = graphRef.current;
+    const THREE = threeRef.current;
+    const overview = gravityOverviewCameraRef.current;
+    const selected = runtimeNodesRef.current.find((node) => node.id === selectedId);
+    if (!graphMounted || !graph || !THREE || !gravityRootId || !selected || !overview || animationFrameRef.current !== null) return;
+
+    if (selectionFocusFrameRef.current !== null) window.cancelAnimationFrame(selectionFocusFrameRef.current);
+    const camera = graph.camera();
+    const controls = graph.controls();
+    const container = containerRef.current;
+    const width = Math.max(1, container?.clientWidth ?? window.innerWidth);
+    const height = Math.max(1, container?.clientHeight ?? window.innerHeight);
+    const safeRect = container ? measureGraphSafeRect(container) : { left: 18, right: width - 18, top: 86, bottom: height - 108 };
+    const desiredScreen = {
+      x: (safeRect.left + safeRect.right) / 2,
+      y: safeRect.top + (safeRect.bottom - safeRect.top) * 0.38,
+    };
+    const desiredNdc = {
+      x: desiredScreen.x / width * 2 - 1,
+      y: 1 - desiredScreen.y / height * 2,
+    };
+    const selectedVector = new THREE.Vector3(selected.x, selected.y, selected.z);
+    const overviewCamera = camera.clone();
+    overviewCamera.position.set(overview.position.x, overview.position.y, overview.position.z);
+    overviewCamera.lookAt(overview.target.x, overview.target.y, overview.target.z);
+    overviewCamera.updateMatrixWorld(true);
+    const selectedInCamera = selectedVector.clone().applyMatrix4(overviewCamera.matrixWorldInverse);
+    const halfHeightAtSelection = Math.tan(THREE.MathUtils.degToRad(overviewCamera.fov) / 2) * -selectedInCamera.z;
+    const rightVector = new THREE.Vector3(1, 0, 0).applyQuaternion(overviewCamera.quaternion).normalize();
+    const upVector = new THREE.Vector3(0, 1, 0).applyQuaternion(overviewCamera.quaternion).normalize();
+    const translation = rightVector.multiplyScalar(selectedInCamera.x - desiredNdc.x * halfHeightAtSelection * overviewCamera.aspect)
+      .add(upVector.multiplyScalar(selectedInCamera.y - desiredNdc.y * halfHeightAtSelection));
+    const pannedPosition = new THREE.Vector3(overview.position.x, overview.position.y, overview.position.z).add(translation);
+    const pannedTarget = new THREE.Vector3(overview.target.x, overview.target.y, overview.target.z).add(translation);
+    const isRootFocus = selected.id === gravityRootId;
+    const focusScale = 0.78;
+    const targetPosition = isRootFocus
+      ? new THREE.Vector3(overview.position.x, overview.position.y, overview.position.z)
+      : selectedVector.clone().add(pannedPosition.sub(selectedVector).multiplyScalar(focusScale));
+    const targetLookAt = isRootFocus
+      ? new THREE.Vector3(overview.target.x, overview.target.y, overview.target.z)
+      : selectedVector.clone().add(pannedTarget.sub(selectedVector).multiplyScalar(focusScale));
+    const startPosition = camera.position.clone();
+    const startLookAt = controls.target.clone();
+    if (startPosition.distanceToSquared(targetPosition) < 0.0001 && startLookAt.distanceToSquared(targetLookAt) < 0.0001) return;
+    const duration = reducedMotionRef.current ? 1 : 430;
+    const startedAt = performance.now();
+    controls.enabled = false;
+
+    const focus = (timestamp: number) => {
+      const progress = Math.max(0, Math.min(1, (timestamp - startedAt) / duration));
+      const eased = 1 - Math.pow(1 - progress, 3);
+      camera.position.lerpVectors(startPosition, targetPosition, eased);
+      controls.target.lerpVectors(startLookAt, targetLookAt, eased);
+      controls.update();
+      if (progress < 1) selectionFocusFrameRef.current = window.requestAnimationFrame(focus);
+      else {
+        selectionFocusFrameRef.current = null;
+        controls.enabled = true;
+      }
+    };
+
+    selectionFocusFrameRef.current = window.requestAnimationFrame(focus);
+    return () => {
+      if (selectionFocusFrameRef.current !== null) window.cancelAnimationFrame(selectionFocusFrameRef.current);
+      selectionFocusFrameRef.current = null;
+      controls.enabled = true;
+    };
+  }, [graphMounted, gravityRootId, selectedId, selectionFocusVersion, viewportVersion, layoutSettledVersion]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -739,31 +906,31 @@ function ClusterRail({
   onSelect: (cluster: string | null) => void;
 }) {
   return (
-    <aside className="universe-panel pointer-events-auto absolute bottom-[118px] left-5 top-[88px] z-20 hidden w-[246px] flex-col overflow-hidden xl:flex">
-      <div className="border-b border-white/[0.07] px-4 pb-3 pt-4">
-        <div className="eyebrow">NEBULA COMMUNITIES</div>
+    <aside data-graph-obstruction="left" className="universe-panel pointer-events-auto absolute bottom-[118px] left-5 top-[88px] z-20 hidden w-[246px] flex-col overflow-hidden xl:flex">
+      <div className="notebook-rule px-4 pb-3 pt-4">
+        <div className="eyebrow">NOTEBOOK INDEX</div>
         <div className="mt-2 flex items-end justify-between">
-          <div><p className="text-[22px] font-medium tracking-[-0.04em] text-white">8 Services</p><p className="mt-0.5 text-[11px] text-slate-500">24 modules · {nodes.length} memories</p></div>
-          <Waypoints className="mb-1 size-4 text-cyan-300/80" />
+          <div><p className="editorial-heading text-[22px]">8 Service Sections</p><p className="notebook-muted mt-0.5 text-[11px]">24 modules · {nodes.length} records</p></div>
+          <Waypoints className="mb-1 size-4 text-[#344f46]" />
         </div>
       </div>
       <div className="flex-1 px-2 py-2">
         <button type="button" onClick={() => onSelect(null)} className={`cluster-item ${activeCluster === null ? 'is-active' : ''}`}>
-          <span className="cluster-dot bg-white shadow-[0_0_14px_rgba(255,255,255,.7)]" />
-          <span className="min-w-0 flex-1"><strong>전체 기억 성운</strong><small>ALL MEMORIES VISIBLE</small></span><span className="cluster-count">{nodes.length}</span>
+          <span className="cluster-dot bg-[#282a26]" />
+          <span className="min-w-0 flex-1"><strong>전체 개발 기록</strong><small>ALL MEMORIES VISIBLE</small></span><span className="cluster-count">{nodes.length}</span>
         </button>
         {clusters.map((cluster) => (
           <button type="button" key={cluster.id} onClick={() => onSelect(activeCluster === cluster.id ? null : cluster.id)} className={`cluster-item ${activeCluster === cluster.id ? 'is-active' : ''}`} style={{ '--cluster-color': cluster.color } as React.CSSProperties}>
-            <span className="cluster-dot" style={{ backgroundColor: cluster.color, boxShadow: `0 0 14px ${cluster.glow}` }} />
+            <span className="cluster-dot" style={{ backgroundColor: cluster.color }} />
             <span className="min-w-0 flex-1"><strong>{cluster.korean}</strong><small>{cluster.modules[0]} · +2 modules</small></span><span className="cluster-count">{nodes.filter((node) => node.cluster === cluster.id).length}</span>
           </button>
         ))}
       </div>
-      <div className="m-3 rounded-xl border border-cyan-300/10 bg-cyan-300/[0.035] p-3">
-        <div className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.1em] text-cyan-200/70"><Activity className="size-3" /> LIVE GRAPH HEALTH</div>
+      <div className="index-summary m-3 p-3">
+        <div className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.1em]"><Activity className="size-3" /> RECORD REGISTER</div>
         <div className="mt-3 grid grid-cols-3 gap-2">
-          {([[String(nodes.length), 'visible'], [String(totalLinks), 'relations'], ['8', 'clouds']] as const).map(([value, label]) => (
-            <div key={label}><div className="font-mono text-[13px] text-slate-200">{value}</div><div className="text-[9px] uppercase tracking-[0.08em] text-slate-600">{label}</div></div>
+          {([[String(nodes.length), 'records'], [String(totalLinks), 'relations'], ['8', 'sections']] as const).map(([value, label]) => (
+            <div key={label}><div className="font-mono text-[13px]">{value}</div><div className="notebook-muted text-[9px] uppercase tracking-[0.08em]">{label}</div></div>
           ))}
         </div>
       </div>
@@ -774,14 +941,14 @@ function ClusterRail({
 function AxisCompass({ nodeCount, linkCount }: { nodeCount: number; linkCount: number }) {
   return (
     <div className="axis-compass pointer-events-none absolute right-5 top-[88px] z-20 hidden xl:block">
-      <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-3.5 py-2.5">
-        <div><div className="eyebrow">MEMORY NEBULA</div><p className="mt-1 text-[10px] text-slate-500">모든 기억과 관계를 숨김없이 펼친 전체 지도입니다.</p></div>
-        <span className="rounded border border-cyan-300/10 bg-cyan-300/[0.05] px-2 py-1 font-mono text-[8px] text-cyan-200/70">ALL VISIBLE</span>
+      <div className="notebook-rule flex items-center justify-between gap-4 px-3.5 py-2.5">
+        <div><div className="eyebrow">MEMORY NOTEBOOK</div><p className="notebook-muted mt-1 text-[10px]">모든 개발 기록과 관계를 펼친 색인입니다.</p></div>
+        <span className="notebook-stamp">ALL VISIBLE</span>
       </div>
-      <div className="grid grid-cols-3 gap-px bg-white/[0.05]">
-        <div className="axis-cell"><b className="text-cyan-200">{nodeCount}</b><span>NODES</span><small>8 service clouds</small></div>
-        <div className="axis-cell"><b className="text-violet-200">{linkCount}</b><span>RELATIONS</span><small>every edge rendered</small></div>
-        <div className="axis-cell"><b className="text-emerald-200">3</b><span>HOPS</span><small>click → gravity tree</small></div>
+      <div className="grid grid-cols-3 gap-px bg-black/[0.08]">
+        <div className="axis-cell"><b className="text-[#416f72]">{nodeCount}</b><span>NODES</span><small>8 service sections</small></div>
+        <div className="axis-cell"><b className="text-[#6f5b78]">{linkCount}</b><span>RELATIONS</span><small>every edge indexed</small></div>
+        <div className="axis-cell"><b className="text-[#52705d]">3</b><span>HOPS</span><small>click → context tree</small></div>
       </div>
     </div>
   );
@@ -789,11 +956,11 @@ function AxisCompass({ nodeCount, linkCount }: { nodeCount: number; linkCount: n
 
 function GravityLegend({ root, selected, directCount, summary }: { root: MemoryNode; selected: MemoryNode; directCount: number; summary: GravitySummary | null }) {
   return (
-    <div className="gravity-legend pointer-events-auto absolute left-1/2 top-[86px] z-20 flex -translate-x-1/2 items-center gap-1.5">
+    <div data-graph-obstruction="top" className="gravity-legend pointer-events-auto absolute left-1/2 top-[86px] z-20 flex -translate-x-1/2 items-center gap-1.5">
       <span className="gravity-token is-root"><i />{root.issueKey} · ROOT</span>
       <span className="gravity-token is-direct"><i />{selected.issueKey} · {directCount} DIRECT</span>
       <span className="gravity-token is-history"><i />2–3 HOP · HISTORY</span>
-      <span className="gravity-token is-floor"><i />{summary?.sedimentCount ?? 0} SEDIMENT</span>
+      <span className="gravity-token is-floor"><i />{summary?.sedimentCount ?? 0} MARGIN</span>
     </div>
   );
 }
@@ -801,42 +968,41 @@ function GravityLegend({ root, selected, directCount, summary }: { root: MemoryN
 function Inspector({ node, directCount, gravitySummary, onClose }: { node: MemoryNode; directCount: number; gravitySummary: GravitySummary | null; onClose: () => void }) {
   const Icon = kindIcons[node.kind];
   return (
-    <aside className="universe-panel inspector pointer-events-auto absolute bottom-[106px] right-5 top-[88px] z-30 flex w-[390px] max-w-[calc(100vw-40px)] flex-col overflow-hidden max-lg:bottom-[92px] max-lg:top-auto max-lg:h-[34vh]">
-      <div className="relative overflow-hidden border-b border-white/[0.07] px-5 pb-5 pt-5">
-        <div className="absolute -right-16 -top-24 size-56 rounded-full opacity-15 blur-3xl" style={{ background: node.color }} />
+    <aside data-graph-obstruction="adaptive" className="universe-panel inspector pointer-events-auto absolute bottom-[106px] right-5 top-[88px] z-30 flex w-[390px] max-w-[calc(100vw-40px)] flex-col overflow-hidden max-lg:bottom-[92px] max-lg:top-auto max-lg:h-[34vh]">
+      <div className="notebook-rule relative overflow-hidden px-5 pb-5 pt-5">
         <div className="relative flex items-start justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-full border" style={{ borderColor: hexToRgba(node.color, 0.35), backgroundColor: hexToRgba(node.color, 0.1), color: node.color, boxShadow: `0 0 22px ${hexToRgba(node.color, 0.18)}` }}><Icon className="size-4" /></span>
-            <div><div className="eyebrow" style={{ color: node.color }}>{kindLabels[node.kind]}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{node.issueKey}</div></div>
+            <span className="node-kind-mark flex size-8 items-center justify-center border" style={{ borderColor: hexToRgba(node.color, 0.52), backgroundColor: hexToRgba(node.color, 0.08), color: node.color }}><Icon className="size-4" /></span>
+            <div><div className="eyebrow" style={{ color: node.color }}>{kindLabels[node.kind]}</div><div className="notebook-muted mt-0.5 font-mono text-[11px]">{node.issueKey}</div></div>
           </div>
-          <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="메모리 상세 닫기" className="rounded-full text-slate-500 hover:bg-white/5 hover:text-white"><X /></Button>
+          <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="메모리 상세 닫기" className="notebook-icon-button"><X /></Button>
         </div>
-        <h2 className="relative mt-4 text-[22px] font-semibold leading-[1.28] tracking-[-0.035em] text-white">{node.name}</h2>
+        <h2 className="editorial-heading relative mt-4 text-[22px] leading-[1.34]">{node.name}</h2>
         <div className="relative mt-4 flex flex-wrap gap-1.5">
-          {[node.clusterLabel, node.date, node.owner].map((item) => <Badge key={item} className="border-white/10 bg-white/[0.045] text-[10px] text-slate-300">{item}</Badge>)}
+          {[node.clusterLabel, node.date, node.owner].map((item) => <Badge key={item} className="notebook-badge text-[10px]">{item}</Badge>)}
         </div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-5 px-5 py-5">
           <section className="coordinate-card gravity-card">
-            <div className="flex items-center justify-between"><div className="section-label"><Waypoints /> Context Gravity</div><span className="font-mono text-[8px] text-emerald-200/65">ROOT PINNED</span></div>
+            <div className="flex items-center justify-between"><div className="section-label"><Waypoints /> Context Gravity</div><span className="font-mono text-[8px] text-[#52705d]">ROOT PINNED</span></div>
             <div className="mt-3 space-y-2.5">
-              <div className="coordinate-row"><b className="text-cyan-200">1</b><span><small>현재 선택의 직접 연결 · 최우선 강조</small><strong>{directCount}개 Memory Node</strong></span><code>100%</code></div>
-              <div className="coordinate-row"><b className="text-violet-200">3</b><span><small>History Tree</small><strong>{gravitySummary?.treeCount ?? '—'}개 노드를 3-hop으로 정렬</strong><em>주 관계선 + 보조 교차 관계선</em></span><code>TREE</code></div>
-              <div className="coordinate-row"><b className="text-emerald-200">↓</b><span><small>Memory Sediment</small><strong>{gravitySummary?.sedimentCount ?? '—'}개 비관련 기억도 바닥에 유지</strong><i><span style={{ width: `${node.relevance * 100}%` }} /></i></span><code>{Math.round(node.relevance * 100)}%</code></div>
+              <div className="coordinate-row"><b className="text-[#416f72]">1</b><span><small>현재 선택의 직접 연결 · 최우선 강조</small><strong>{directCount}개 Memory Node</strong></span><code>100%</code></div>
+              <div className="coordinate-row"><b className="text-[#6f5b78]">3</b><span><small>History Tree</small><strong>{gravitySummary?.treeCount ?? '—'}개 노드를 3-hop으로 정렬</strong><em>주 관계선 + 보조 교차 관계선</em></span><code>TREE</code></div>
+              <div className="coordinate-row"><b className="text-[#52705d]">↓</b><span><small>Notebook Margin</small><strong>{gravitySummary?.sedimentCount ?? '—'}개 비관련 기록도 여백에 유지</strong><i><span style={{ width: `${node.relevance * 100}%` }} /></i></span><code>{Math.round(node.relevance * 100)}%</code></div>
             </div>
           </section>
           <section><div className="section-label"><Network /> 관련도 산정 근거</div><div className="mt-2.5 space-y-1.5">{node.relevanceReasons.map((reason) => <div key={reason} className="evidence-reason"><span />{reason}</div>)}</div></section>
           <section><div className="section-label"><CircleDot /> 발견된 맥락</div><p className="inspector-copy">{node.summary}</p></section>
           <section><div className="section-label"><Sparkles /> 당시의 기획 의도</div><p className="inspector-copy">{node.intent}</p></section>
           <section><div className="section-label"><ShieldCheck /> 처리 및 결정</div><p className="inspector-copy">{node.resolution}</p></section>
-          <section className="rounded-xl border border-amber-300/10 bg-amber-300/[0.045] p-3.5"><div className="section-label !text-amber-200/80"><AlertTriangle /> 사이드 이펙트</div><p className="mt-2 text-[12px] leading-5 text-amber-50/70">{node.risk}</p></section>
+          <section className="margin-warning p-3.5"><div className="section-label"><AlertTriangle /> 사이드 이펙트</div><p className="mt-2 text-[12px] leading-5">{node.risk}</p></section>
           <section><div className="section-label"><Braces /> 변경 소스 파일</div><div className="mt-2.5 space-y-1.5">
-            {node.files.map((file) => <button key={file} type="button" className="code-file"><Code2 className="size-3.5" /><span>{file}</span><ArrowUpRight className="ml-auto size-3 text-slate-600" /></button>)}
+            {node.files.map((file) => <button key={file} type="button" className="code-file"><Code2 className="size-3.5" /><span>{file}</span><ArrowUpRight className="ml-auto size-3 opacity-45" /></button>)}
           </div></section>
         </div>
       </ScrollArea>
-      <div className="border-t border-white/[0.07] p-3"><Button className="h-10 w-full rounded-xl bg-cyan-300 text-[12px] font-semibold text-slate-950 shadow-[0_0_28px_rgba(83,231,255,.18)] hover:bg-cyan-200"><Sparkles data-icon="inline-start" /> 현재 이슈 관점으로 Brief 생성</Button></div>
+      <div className="notebook-rule-top p-3"><Button className="brief-button h-10 w-full text-[12px] font-semibold"><Sparkles data-icon="inline-start" /> 현재 이슈 관점으로 Brief 생성</Button></div>
     </aside>
   );
 }
@@ -856,23 +1022,23 @@ function HistoryRail({ activeIndex, playing, gravityMode, onPlay, onSelect }: { 
   }, [activeIndex]);
 
   return (
-    <div className={`history-rail universe-panel pointer-events-auto absolute bottom-5 left-5 right-5 z-40 h-[88px] overflow-hidden max-lg:h-[82px] ${gravityMode ? 'is-gravity' : ''}`}>
+    <div data-graph-obstruction="bottom" className={`history-rail universe-panel pointer-events-auto absolute bottom-5 left-5 right-5 z-40 h-[88px] overflow-hidden max-lg:h-[82px] ${gravityMode ? 'is-gravity' : ''}`}>
       <div className="flex h-full items-center">
-        <div className={`flex h-full shrink-0 items-center gap-3 border-r border-white/[0.07] max-md:w-auto max-md:border-r-0 max-md:px-3 ${gravityMode ? 'w-[150px] px-3' : 'w-[220px] px-4'}`}>
-          <Button type="button" onClick={onPlay} size="icon-lg" className="size-11 rounded-full border border-cyan-200/30 bg-cyan-200/10 text-cyan-100 shadow-[0_0_24px_rgba(83,231,255,.15)] hover:bg-cyan-200/20" aria-label={playing ? '기억 경로 일시 정지' : '기억 경로 재생'}>{playing ? <Pause className="size-4" /> : <Play className="ml-0.5 size-4" />}</Button>
-          <div className="max-md:hidden"><div className="eyebrow">ANALYSIS REPLAY</div><div className="mt-1 text-[12px] text-slate-300">Query 탐색 경로</div></div>
+        <div className={`notebook-rule-right flex h-full shrink-0 items-center gap-3 max-md:w-auto max-md:border-r-0 max-md:px-3 ${gravityMode ? 'w-[150px] px-3' : 'w-[220px] px-4'}`}>
+          <Button type="button" onClick={onPlay} size="icon-lg" className="replay-button size-11" aria-label={playing ? '기억 경로 일시 정지' : '기억 경로 재생'}>{playing ? <Pause className="size-4" /> : <Play className="ml-0.5 size-4" />}</Button>
+          <div className="max-md:hidden"><div className="eyebrow">REVIEW NOTES</div><div className="mt-1 text-[12px]">Query 탐색 경로</div></div>
         </div>
         <div ref={scrollRef} className={`relative flex min-w-0 flex-1 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${gravityMode ? 'px-2' : 'px-4'}`}>
-          <div className="absolute left-8 right-8 top-[31px] h-px bg-white/[0.07]" />
-          <div className="absolute left-8 top-[31px] h-px bg-gradient-to-r from-cyan-300 via-violet-400 to-emerald-300 transition-[width] duration-700" style={{ width: `${Math.max(0, activeIndex) / (storyChapters.length - 1) * 88}%` }} />
+          <div className="absolute left-8 right-8 top-[31px] h-px bg-black/[0.12]" />
+          <div className="history-progress absolute left-8 top-[31px] h-px transition-[width] duration-500" style={{ width: `${Math.max(0, activeIndex) / (storyChapters.length - 1) * 88}%` }} />
           <div className={`relative z-10 flex min-w-max flex-1 items-center justify-between ${gravityMode ? 'gap-2' : 'gap-6'}`}>
             {storyChapters.map((chapter, index) => {
               const isActive = index <= activeIndex;
               const isCurrent = index === activeIndex;
               return <button ref={isCurrent ? activeButtonRef : null} type="button" key={chapter.id} onClick={() => onSelect(index)} className={`group flex flex-col items-center text-center ${gravityMode ? 'min-w-[68px]' : 'min-w-[112px]'}`}>
-                <span className={`flex size-5 items-center justify-center rounded-full border font-mono text-[8px] transition-all duration-500 ${isCurrent ? 'scale-125 border-white bg-white text-slate-950 shadow-[0_0_22px_rgba(255,255,255,.7)]' : isActive ? 'border-cyan-200/60 bg-cyan-200/20 text-cyan-100 shadow-[0_0_12px_rgba(83,231,255,.24)]' : 'border-white/10 bg-[#080c14] text-slate-600'}`}>{chapter.step}</span>
-                <span className={`mt-1.5 font-mono text-[7px] tracking-[0.08em] ${isCurrent ? 'text-cyan-200/80' : 'text-slate-700'}`}>{chapter.label}</span>
-                <span className={`mt-0.5 text-[10px] font-medium ${isCurrent ? 'text-white' : isActive ? 'text-slate-300' : 'text-slate-600'}`}>{chapter.title}</span>
+                <span className={`history-step ${isCurrent ? 'is-current' : isActive ? 'is-active' : ''}`}>{chapter.step}</span>
+                <span className={`history-label mt-1.5 font-mono text-[7px] tracking-[0.08em] ${isCurrent ? 'is-current' : ''}`}>{chapter.label}</span>
+                <span className={`history-title mt-0.5 text-[10px] font-medium ${isCurrent ? 'is-current' : isActive ? 'is-active' : ''}`}>{chapter.title}</span>
               </button>;
             })}
           </div>
@@ -890,8 +1056,8 @@ export function MemoryUniverse() {
   const [activeStoryIndex, setActiveStoryIndex] = useState(-1);
   const [gravitySummary, setGravitySummary] = useState<GravitySummary | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [autoRotate, setAutoRotate] = useState(false);
   const [viewResetVersion, setViewResetVersion] = useState(0);
+  const [selectionFocusVersion, setSelectionFocusVersion] = useState(0);
   const [graphReady, setGraphReady] = useState(false);
   const [graphError, setGraphError] = useState(false);
   const [query, setQuery] = useState('결제 승인 후 잔액이 늦게 반영돼요');
@@ -930,6 +1096,7 @@ export function MemoryUniverse() {
     setActiveStoryIndex(0);
     setGravityRootId(storyPath[0]);
     setSelectedId(storyPath[0]);
+    setSelectionFocusVersion((version) => version + 1);
     let index = 0;
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     timerRef.current = window.setInterval(() => {
@@ -941,6 +1108,7 @@ export function MemoryUniverse() {
       }
       setActiveStoryIndex(index);
       setSelectedId(storyPath[index]);
+      setSelectionFocusVersion((version) => version + 1);
     }, reduced ? 240 : 2200);
   }, [clearTimer]);
 
@@ -965,11 +1133,11 @@ export function MemoryUniverse() {
 
   const handleSelect = (node: MemoryNode | null) => {
     stopStory();
-    setAutoRotate(false);
     if (node) {
       setActiveCluster(null);
       setGravityRootId((current) => current ?? node.id);
       setSelectedId(node.id);
+      setSelectionFocusVersion((version) => version + 1);
     } else {
       setGravityRootId(null);
       setSelectedId(null);
@@ -985,6 +1153,7 @@ export function MemoryUniverse() {
     setActiveStoryIndex(index);
     setGravityRootId(storyPath[0]);
     setSelectedId(storyPath[index]);
+    setSelectionFocusVersion((version) => version + 1);
   };
 
   const submitQuery = (event: SyntheticEvent<HTMLFormElement>) => {
@@ -994,28 +1163,27 @@ export function MemoryUniverse() {
 
   return (
     <TooltipProvider delay={300}>
-      <main className="memory-shell fixed inset-0 overflow-clip text-slate-100">
+      <main className="memory-shell fixed inset-0 overflow-clip">
         <div className="memory-aurora" /><div className="memory-grid" />
-        <GraphStage nodes={graph.nodes} links={graph.links} gravityRootId={gravityRootId} selectedId={selectedId} activeCluster={activeCluster} activeStoryIndex={activeStoryIndex} autoRotate={autoRotate} viewResetVersion={viewResetVersion} onSelect={handleSelect} onGravityChange={setGravitySummary} onReady={() => setGraphReady(true)} onError={() => setGraphError(true)} />
-        <div className="sr-only" aria-live="polite">{selectedNode ? `${selectedNode.issueKey} 선택. 직접 연결 ${selectedDirectCount}개, History Tree ${gravitySummary?.treeCount ?? 0}개.` : '전체 Memory Nebula 보기.'}</div>
+        <GraphStage nodes={graph.nodes} links={graph.links} gravityRootId={gravityRootId} selectedId={selectedId} activeCluster={activeCluster} activeStoryIndex={activeStoryIndex} viewResetVersion={viewResetVersion} selectionFocusVersion={selectionFocusVersion} onSelect={handleSelect} onGravityChange={setGravitySummary} onReady={() => setGraphReady(true)} onError={() => setGraphError(true)} />
+        <div className="sr-only" aria-live="polite">{selectedNode ? `${selectedNode.issueKey} 선택. 직접 연결 ${selectedDirectCount}개, History Tree ${gravitySummary?.treeCount ?? 0}개.` : '전체 Development Memory Notebook 보기.'}</div>
 
-        <header className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-[68px] items-center gap-4 border-b border-white/[0.06] bg-[#04070d]/75 px-5 backdrop-blur-xl">
+        <header data-graph-obstruction="top" className="notebook-header pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-[68px] items-center gap-4 px-5">
           <div className="pointer-events-auto flex min-w-[248px] items-center gap-3 max-lg:min-w-0">
             <div className="logo-mark"><Network className="size-[17px]" /></div>
-            <div><div className="flex items-center gap-2"><span className="text-[14px] font-semibold tracking-[0.16em] text-white">WEBSIDIAN</span><span className="hidden rounded border border-white/10 px-1.5 py-0.5 font-mono text-[8px] tracking-[0.14em] text-slate-500 sm:inline">POC 03</span></div><p className="mt-0.5 hidden text-[9px] uppercase tracking-[0.16em] text-slate-600 sm:block">DEVELOPMENT MEMORY OBSERVATORY</p></div>
+            <div><div className="flex items-center gap-2"><span className="editorial-heading text-[15px] tracking-[0.12em]">WEBSIDIAN</span><span className="notebook-stamp hidden sm:inline">NOTE 04</span></div><p className="notebook-muted mt-0.5 hidden text-[9px] uppercase tracking-[0.16em] sm:block">DEVELOPMENT MEMORY NOTEBOOK</p></div>
           </div>
           <form onSubmit={submitQuery} className="pointer-events-auto mx-auto w-full max-w-[620px]">
-            <div className="search-orbit group relative"><Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-cyan-200/70" /><Input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} aria-label="새로운 이슈 검색" className="h-10 rounded-full border-white/[0.09] bg-white/[0.045] pl-10 pr-20 text-[12px] text-slate-100 placeholder:text-slate-600 focus-visible:border-cyan-300/30 focus-visible:ring-cyan-300/10" placeholder="새로운 이슈를 입력해 History를 탐색하세요" /><span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 font-mono text-[8px] text-slate-500"><Command className="mr-1 inline size-2.5" />K</span></div>
+            <div className="search-orbit group relative"><Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#344f46]" /><Input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} aria-label="새로운 이슈 검색" className="notebook-search h-10 pl-10 pr-20 text-[12px]" placeholder="새로운 이슈를 기록하고 History를 탐색하세요" /><span className="search-shortcut absolute right-3 top-1/2 -translate-y-1/2 px-2 py-1 font-mono text-[8px]"><Command className="mr-1 inline size-2.5" />K</span></div>
           </form>
           <div className="pointer-events-auto flex min-w-[248px] items-center justify-end gap-2 max-lg:min-w-0">
-            <div className="hidden items-center gap-3 border-r border-white/[0.07] pr-4 2xl:flex"><div className="text-right"><div className="font-mono text-[11px] text-slate-300">{graph.nodes.length} / {graph.links.length}</div><div className="text-[8px] uppercase tracking-[0.1em] text-slate-600">nodes / relations</div></div><span className="status-pulse" /></div>
-            <Tooltip><TooltipTrigger render={<Button onClick={() => { stopStory(); setGravityRootId(null); setSelectedId(null); setActiveStoryIndex(-1); setActiveCluster(null); setAutoRotate(false); setViewResetVersion((value) => value + 1); }} variant="ghost" size="icon-lg" aria-label="전체 성운 보기로 복귀" className="rounded-full border border-white/[0.07] text-slate-400 hover:bg-white/[0.06] hover:text-white" />}><RotateCcw /></TooltipTrigger><TooltipContent>전체 성운으로 복귀</TooltipContent></Tooltip>
-            <Tooltip><TooltipTrigger render={<Button onClick={() => setAutoRotate((value) => !value)} variant="ghost" size="icon-lg" aria-label="자동 회전 전환" className={`rounded-full border border-white/[0.07] text-slate-400 hover:bg-white/[0.06] hover:text-white ${autoRotate ? 'bg-white/[0.05] text-cyan-200' : ''}`} />}><Orbit /></TooltipTrigger><TooltipContent>자동 궤도 회전</TooltipContent></Tooltip>
-            <Button type="button" variant="outline" className="hidden h-9 rounded-full border-cyan-200/20 bg-cyan-200/[0.055] px-3 text-[10px] font-semibold tracking-[0.08em] text-cyan-100 hover:bg-cyan-200/10 md:flex"><Maximize2 data-icon="inline-start" /> CONTEXT GRAVITY</Button>
+            <div className="notebook-rule-right hidden items-center gap-3 pr-4 2xl:flex"><div className="text-right"><div className="font-mono text-[11px]">{graph.nodes.length} / {graph.links.length}</div><div className="notebook-muted text-[8px] uppercase tracking-[0.1em]">records / relations</div></div><span className="status-pulse" /></div>
+            <Tooltip><TooltipTrigger render={<Button onClick={() => { stopStory(); setGravityRootId(null); setSelectedId(null); setActiveStoryIndex(-1); setActiveCluster(null); setViewResetVersion((value) => value + 1); }} variant="ghost" size="icon-lg" aria-label="전체 기록 보기로 복귀" className="notebook-icon-button" />}><RotateCcw /></TooltipTrigger><TooltipContent>전체 기록으로 복귀</TooltipContent></Tooltip>
+            <Button type="button" variant="outline" disabled={!selectedNode} onClick={() => setSelectionFocusVersion((version) => version + 1)} className="context-badge hidden h-9 px-3 text-[10px] font-semibold tracking-[0.08em] md:flex"><Maximize2 data-icon="inline-start" /> CONTEXT FOCUS</Button>
           </div>
         </header>
 
-        <div className="pointer-events-auto absolute left-3 right-3 top-[76px] z-30 flex gap-1.5 overflow-x-auto [scrollbar-width:none] xl:hidden [&::-webkit-scrollbar]:hidden">
+        <div data-graph-obstruction="top" className="pointer-events-auto absolute left-3 right-3 top-[76px] z-30 flex gap-1.5 overflow-x-auto [scrollbar-width:none] xl:hidden [&::-webkit-scrollbar]:hidden">
           <button type="button" onClick={() => { setActiveCluster(null); setGravityRootId(null); setSelectedId(null); }} className={`source-chip ${activeCluster === null ? 'is-active' : ''}`}>ALL</button>
           {clusters.map((cluster) => (
             <button key={cluster.id} type="button" onClick={() => { stopStory(); setActiveStoryIndex(-1); setActiveCluster(activeCluster === cluster.id ? null : cluster.id); setGravityRootId(null); setSelectedId(null); }} className={`source-chip ${activeCluster === cluster.id ? 'is-active' : ''}`} style={{ '--chip-color': cluster.color } as React.CSSProperties}>
@@ -1028,11 +1196,11 @@ export function MemoryUniverse() {
         {rootNode && selectedNode && <GravityLegend root={rootNode} selected={selectedNode} directCount={selectedDirectCount} summary={gravitySummary} />}
         {selectedNode && <Inspector key={selectedNode.id} node={selectedNode} directCount={selectedDirectCount} gravitySummary={gravitySummary} onClose={() => { setGravityRootId(null); setSelectedId(null); setActiveStoryIndex(-1); }} />}
         {!rootNode && <AxisCompass nodeCount={graph.nodes.length} linkCount={graph.links.length} />}
-        <div className="pointer-events-none absolute left-[286px] top-[92px] z-10 hidden xl:block"><div className="eyebrow">{rootNode ? 'CONTEXT GRAVITY · ACTIVE' : 'MEMORY NEBULA · LIVE'}</div><div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500"><span className="status-pulse !size-1.5" />{activeStoryIndex >= 0 ? storyChapters[activeStoryIndex]?.caption : selectedNode ? `${selectedNode.issueKey}의 직접 연결 ${selectedDirectCount}개를 별도로 강조했습니다.` : '노드를 선택하면 관련 기억은 트리로 연결되고 나머지는 기억의 지층으로 내려갑니다.'}</div></div>
-        <div className="pointer-events-auto absolute bottom-[128px] left-[286px] z-20 hidden items-center gap-2 xl:flex"><div className="interaction-pill"><RotateCcw /> DRAG TO TILT</div><div className="interaction-pill"><Box /> SCROLL TO ZOOM</div><div className="interaction-pill"><CircleDot /> CLICK · GRAVITY</div><div className="interaction-pill"><Sparkles /> HOVER · 1-HOP</div></div>
+        <div className="pointer-events-none absolute left-[286px] top-[92px] z-10 hidden xl:block"><div className="eyebrow">{rootNode ? 'CONTEXT TREE · OPEN' : 'MEMORY NOTEBOOK · OPEN'}</div><div className="notebook-muted mt-2 flex items-center gap-2 text-[11px]"><span className="status-pulse !size-1.5" />{activeStoryIndex >= 0 ? storyChapters[activeStoryIndex]?.caption : selectedNode ? `${selectedNode.issueKey}의 직접 연결 ${selectedDirectCount}개를 잉크로 표시했습니다.` : '노드를 클릭하면 화면이 해당 기록에 맞춰지고 관련 History가 트리로 정리됩니다.'}</div></div>
+        <div className="pointer-events-auto absolute bottom-[128px] left-[286px] z-20 hidden items-center gap-2 xl:flex"><div className="interaction-pill"><RotateCcw /> DRAG · VIEW</div><div className="interaction-pill"><Box /> SCROLL · SCALE</div><div className="interaction-pill"><CircleDot /> CLICK · FOCUS</div><div className="interaction-pill"><Sparkles /> HOVER · TRACE</div></div>
 
-        {!graphReady && !graphError && <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"><div className="flex flex-col items-center"><div className="loading-orbit"><span /><span /><span /></div><div className="mt-5 font-mono text-[9px] tracking-[0.2em] text-cyan-100/60">ASSEMBLING MEMORY UNIVERSE</div></div></div>}
-        {graphError && <div className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center bg-[#03060c]/80 px-6"><div className="universe-panel max-w-md p-6 text-center"><Cpu className="mx-auto size-7 text-amber-300" /><h2 className="mt-4 text-lg font-semibold">3D 가속을 시작할 수 없습니다</h2><p className="mt-2 text-sm leading-6 text-slate-400">WebGL이 활성화된 브라우저에서 다시 열면 Memory Universe를 확인할 수 있습니다.</p></div></div>}
+        {!graphReady && !graphError && <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"><div className="flex flex-col items-center"><div className="loading-orbit"><span /><span /><span /></div><div className="notebook-muted mt-5 font-mono text-[9px] tracking-[0.2em]">OPENING DEVELOPMENT NOTEBOOK</div></div></div>}
+        {graphError && <div className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center bg-[#e8e2d4]/85 px-6"><div className="universe-panel max-w-md p-6 text-center"><Cpu className="mx-auto size-7 text-[#8a6843]" /><h2 className="editorial-heading mt-4 text-lg">3D 기록 지도를 열 수 없습니다</h2><p className="notebook-muted mt-2 text-sm leading-6">WebGL이 활성화된 브라우저에서 다시 열면 Development Memory Notebook을 확인할 수 있습니다.</p></div></div>}
         <HistoryRail activeIndex={activeStoryIndex} playing={playing} gravityMode={Boolean(rootNode)} onPlay={() => (playing ? stopStory() : playStory())} onSelect={selectStoryStep} />
       </main>
     </TooltipProvider>
