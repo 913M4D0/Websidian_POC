@@ -53,6 +53,15 @@ import {
   storyPath,
 } from '@/lib/memory-graph';
 
+type GraphForce = ((alpha: number) => void) & {
+  initialize?: (nodes: MemoryNode[]) => void;
+};
+
+type GraphLinkForce = GraphForce & {
+  distance: (accessor: (link: MemoryLink) => number) => GraphLinkForce;
+  strength: (value: number) => GraphLinkForce;
+};
+
 type GraphInstance = {
   graphData: (data?: unknown) => GraphInstance;
   backgroundColor: (color: string) => GraphInstance;
@@ -78,11 +87,20 @@ type GraphInstance = {
   linkCurvature: (accessor: (link: MemoryLink) => number) => GraphInstance;
   onNodeClick: (handler: (node: MemoryNode) => void) => GraphInstance;
   onNodeHover: (handler: (node: MemoryNode | null) => void) => GraphInstance;
+  onNodeDrag: (handler: (node: MemoryNode, translate: GraphPosition) => void) => GraphInstance;
+  onNodeDragEnd: (handler: (node: MemoryNode, translate: GraphPosition) => void) => GraphInstance;
   onBackgroundClick: (handler: () => void) => GraphInstance;
   onEngineStop: (handler: () => void) => GraphInstance;
   cooldownTicks: (value: number) => GraphInstance;
   warmupTicks: (value: number) => GraphInstance;
   d3ReheatSimulation: () => GraphInstance;
+  d3Force: {
+    (name: string): GraphForce | undefined;
+    (name: string, force: GraphForce | null): GraphInstance;
+  };
+  d3AlphaDecay: (value: number) => GraphInstance;
+  d3VelocityDecay: (value: number) => GraphInstance;
+  cooldownTime: (value: number) => GraphInstance;
   enableNodeDrag: (value: boolean) => GraphInstance;
   cameraPosition: (
     position: { x: number; y: number; z: number },
@@ -216,8 +234,20 @@ function GraphStage({
   const animationFrameRef = useRef<number | null>(null);
   const pointerFrameRef = useRef<number | null>(null);
   const hoverRefreshFrameRef = useRef<number | null>(null);
+  const clickFallbackFrameRef = useRef<number | null>(null);
   const hoveredIdRef = useRef<string | null>(null);
-  const pointerStateRef = useRef({ x: -1000, y: -1000, active: false, pressed: false, lastFrame: 0 });
+  const draggedNodeIdRef = useRef<string | null>(null);
+  const lastGraphClickRef = useRef({ id: '', at: 0 });
+  const pointerStateRef = useRef({
+    x: -1000,
+    y: -1000,
+    active: false,
+    pressed: false,
+    lastFrame: 0,
+    downX: -1000,
+    downY: -1000,
+    downNodeId: '' as string,
+  });
   const nodeObjectRefs = useRef<Map<string, import('three').Group>>(new Map());
   const neighborIdsRef = useRef<Map<string, Set<string>>>(new Map());
   const nebulaMaterialsRef = useRef<Array<{ opacity: number }>>([]);
@@ -253,12 +283,36 @@ function GraphStage({
       reducedMotionRef.current = event.matches;
       if (event.matches) {
         pointerStateRef.current.active = false;
+        draggedNodeIdRef.current = null;
         for (const marker of nodeObjects.values()) {
           const object = marker.parent;
           object?.scale.setScalar(1);
           if (object) object.rotation.set(0, 0, 0);
         }
       }
+
+      const graph = graphRef.current;
+      if (!graph || stateRef.current.gravityRootId || gravityLayoutRef.current || animationFrameRef.current !== null) return;
+      for (const node of runtimeNodesRef.current) {
+        const anchor = nebulaPositionsRef.current.get(node.id);
+        if (event.matches && anchor) {
+          node.x = anchor.x;
+          node.y = anchor.y;
+          node.z = anchor.z;
+          node.fx = anchor.x;
+          node.fy = anchor.y;
+          node.fz = anchor.z;
+        } else {
+          node.fx = undefined;
+          node.fy = undefined;
+          node.fz = undefined;
+        }
+        node.vx = 0;
+        node.vy = 0;
+        node.vz = 0;
+      }
+      if (event.matches) graph.cooldownTicks(0).refresh();
+      else graph.cooldownTicks(Number.POSITIVE_INFINITY).cooldownTime(Number.POSITIVE_INFINITY).d3ReheatSimulation();
     };
 
     async function mountGraph() {
@@ -280,14 +334,16 @@ function GraphStage({
         ]);
         if (cancelled || !containerRef.current) return;
         threeRef.current = THREE;
+        const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
 
         const nebulaPositions = createNebulaLayout(nodesRef.current);
         nebulaPositionsRef.current = nebulaPositions;
-        const runtimeNodes = nodesRef.current.map((node) => {
+        const runtimeNodes: MemoryNode[] = nodesRef.current.map((node) => {
           const position = nebulaPositions.get(node.id) ?? { x: node.x, y: node.y, z: node.z };
           return { ...node, ...position, fx: position.x, fy: position.y, fz: position.z };
         });
         runtimeNodesRef.current = runtimeNodes;
+        const runtimeNodeById = new Map(runtimeNodes.map((node) => [node.id, node]));
         const neighborIds = new Map(nodesRef.current.map((node) => [node.id, new Set<string>()]));
         for (const link of linksRef.current) {
           const source = linkEndpointId(link.source);
@@ -297,6 +353,14 @@ function GraphStage({
         }
         neighborIdsRef.current = neighborIds;
         const nodeById = new Map(nodesRef.current.map((node) => [node.id, node]));
+        const restDistanceByLink = new Map(linksRef.current.map((link) => {
+          const source = nebulaPositions.get(linkEndpointId(link.source));
+          const target = nebulaPositions.get(linkEndpointId(link.target));
+          const distance = source && target
+            ? Math.hypot(target.x - source.x, target.y - source.y, target.z - source.z)
+            : 30;
+          return [memoryLinkKey(link), distance] as const;
+        }));
         let neighborLabelAnchor = '';
         let neighborLabelIds = new Set<string>();
         const getNeighborLabelIds = () => {
@@ -323,6 +387,71 @@ function GraphStage({
           rendererConfig: { antialias: true, alpha: true },
         }) as unknown as GraphInstance;
         graphRef.current = graph;
+        const selectNodeOnce = (node: MemoryNode) => {
+          const now = performance.now();
+          const lastClick = lastGraphClickRef.current;
+          if (lastClick.id === node.id && now - lastClick.at < 120) return;
+          lastGraphClickRef.current = { id: node.id, at: now };
+          onSelectRef.current(node);
+        };
+        let simulationNodes = runtimeNodes;
+        const motionById = new Map(runtimeNodes.map((node, index) => [node.id, {
+          phase: index * 2.399963229728653 + node.id.length * 0.19,
+          speed: 0.45 + (index % 7) * 0.045,
+          amplitude: node.isHub ? 1.8 : node.kind === 'query' ? 2.2 : Math.min(3.6, 2.2 + node.importance * 1.4),
+        }]));
+        const cameraRight = new THREE.Vector3();
+        const cameraUp = new THREE.Vector3();
+        const livingForce = ((alpha: number) => {
+          if (
+            stateRef.current.gravityRootId
+            || gravityLayoutRef.current
+            || reducedMotionRef.current
+            || animationFrameRef.current !== null
+            || selectionFocusFrameRef.current !== null
+          ) return;
+
+          const seconds = performance.now() / 1000;
+          const pointer = pointerStateRef.current;
+          const pointerResponds = pointer.active && !pointer.pressed;
+          if (pointerResponds) {
+            const camera = graph.camera();
+            cameraRight.set(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+            cameraUp.set(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+          }
+
+          for (const node of simulationNodes) {
+            if (node.id === draggedNodeIdRef.current || node.fx !== undefined || node.fy !== undefined || node.fz !== undefined) continue;
+            const anchor = nebulaPositions.get(node.id);
+            const motion = motionById.get(node.id);
+            if (!anchor || !motion) continue;
+            const targetX = anchor.x + Math.sin(seconds * motion.speed + motion.phase) * motion.amplitude;
+            const targetY = anchor.y + Math.sin(seconds * motion.speed * 0.83 + motion.phase * 1.37) * motion.amplitude * 0.65;
+            const targetZ = anchor.z + Math.cos(seconds * motion.speed * 0.71 + motion.phase * 0.73) * motion.amplitude * 0.8;
+            const spring = node.isHub ? 0.018 : 0.014;
+            node.vx = (node.vx ?? 0) + (targetX - node.x) * spring * alpha;
+            node.vy = (node.vy ?? 0) + (targetY - node.y) * spring * alpha;
+            node.vz = (node.vz ?? 0) + (targetZ - node.z) * spring * alpha;
+
+            if (pointerResponds && node.id !== hoveredIdRef.current) {
+              const screen = graph.graph2ScreenCoords(node.x, node.y, node.z);
+              const differenceX = screen.x - pointer.x;
+              const differenceY = screen.y - pointer.y;
+              const distance = Math.hypot(differenceX, differenceY);
+              if (distance > 4 && distance < 140) {
+                const strength = Math.pow(1 - distance / 140, 2) * 0.11 * alpha;
+                const normalX = differenceX / distance;
+                const normalY = -differenceY / distance;
+                node.vx += (cameraRight.x * normalX + cameraUp.x * normalY) * strength;
+                node.vy += (cameraRight.y * normalX + cameraUp.y * normalY) * strength;
+                node.vz += (cameraRight.z * normalX + cameraUp.z * normalY) * strength;
+              }
+            }
+          }
+        }) as GraphForce;
+        livingForce.initialize = (nextNodes) => {
+          simulationNodes = nextNodes;
+        };
 
         const isHoverIncident = (link: MemoryLink) => {
           const hover = hoveredIdRef.current;
@@ -486,7 +615,9 @@ function GraphStage({
           .linkCurvature((link) => gravityLayoutRef.current
             ? isFocusedCrossLink(link) ? 0.065 : 0
             : link.story ? 0.08 : Math.max(0.015, (link.score - 0.35) * 0.04))
-          .onNodeClick((node) => onSelectRef.current(node))
+          .onNodeClick((node) => {
+            selectNodeOnce(node);
+          })
           .onNodeHover((node) => {
             const nextHoveredId = node?.id ?? null;
             if (nextHoveredId === hoveredIdRef.current) return;
@@ -498,11 +629,83 @@ function GraphStage({
               });
             }
           })
+          .onNodeDrag((node) => {
+            const gravityTarget = gravityLayoutRef.current?.positions.get(node.id);
+            if (stateRef.current.gravityRootId) {
+              if (gravityTarget) Object.assign(node, gravityTarget, {
+                fx: gravityTarget.x,
+                fy: gravityTarget.y,
+                fz: gravityTarget.z,
+                vx: 0,
+                vy: 0,
+                vz: 0,
+              });
+              return;
+            }
+
+            draggedNodeIdRef.current = node.id;
+            node.vx = 0;
+            node.vy = 0;
+            node.vz = 0;
+          })
+          .onNodeDragEnd((node) => {
+            draggedNodeIdRef.current = null;
+            const gravityTarget = gravityLayoutRef.current?.positions.get(node.id);
+            if (stateRef.current.gravityRootId && gravityTarget) {
+              Object.assign(node, gravityTarget, {
+                fx: gravityTarget.x,
+                fy: gravityTarget.y,
+                fz: gravityTarget.z,
+                vx: 0,
+                vy: 0,
+                vz: 0,
+              });
+              return;
+            }
+
+            if (reducedMotionRef.current) {
+              const anchor = nebulaPositions.get(node.id);
+              if (anchor) Object.assign(node, anchor, {
+                fx: anchor.x,
+                fy: anchor.y,
+                fz: anchor.z,
+                vx: 0,
+                vy: 0,
+                vz: 0,
+              });
+              graph.cooldownTicks(0).refresh();
+              return;
+            }
+
+            node.fx = undefined;
+            node.fy = undefined;
+            node.fz = undefined;
+            node.vx = 0;
+            node.vy = 0;
+            node.vz = 0;
+            graph.cooldownTicks(Number.POSITIVE_INFINITY).cooldownTime(Number.POSITIVE_INFINITY).d3ReheatSimulation();
+          })
           .onBackgroundClick(() => onSelectRef.current(null))
-          .enableNodeDrag(false)
+          .enableNodeDrag(finePointer.matches)
           .warmupTicks(0)
           .cooldownTicks(0)
           .onEngineStop(() => onReadyRef.current());
+
+        const linkForce = graph.d3Force('link') as GraphLinkForce | undefined;
+        if (finePointer.matches) {
+          linkForce
+            ?.distance((link) => restDistanceByLink.get(memoryLinkKey(link)) ?? 30)
+            .strength(0.016);
+        } else {
+          graph.d3Force('link', null);
+        }
+        graph
+          .d3Force('center', null)
+          .d3Force('charge', null)
+          .d3Force('living', livingForce)
+          .d3AlphaDecay(0)
+          .d3VelocityDecay(0.56)
+          .cooldownTime(Number.POSITIVE_INFINITY);
 
         const controls = graph.controls();
         controls.autoRotate = false;
@@ -547,7 +750,6 @@ function GraphStage({
         graph.scene().add(floorGroup);
 
         const canvas = graph.renderer().domElement;
-        const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
         const requestPointerFrame = () => {
           if (pointerFrameRef.current === null) pointerFrameRef.current = window.requestAnimationFrame(updatePointerObjects);
         };
@@ -607,24 +809,58 @@ function GraphStage({
           requestPointerFrame();
         };
         const deactivatePointer = () => {
-          pointerStateRef.current.active = false;
-          pointerStateRef.current.pressed = false;
+          const pointer = pointerStateRef.current;
+          pointer.active = false;
+          pointer.pressed = false;
+          pointer.downNodeId = '';
           requestPointerFrame();
         };
-        const pressPointer = () => {
-          pointerStateRef.current.pressed = true;
-          pointerStateRef.current.active = false;
+        const pressPointer = (event: PointerEvent) => {
+          const bounds = canvas.getBoundingClientRect();
+          const pointer = pointerStateRef.current;
+          pointer.x = event.clientX - bounds.left;
+          pointer.y = event.clientY - bounds.top;
+          pointer.downX = pointer.x;
+          pointer.downY = pointer.y;
+          pointer.downNodeId = hoveredIdRef.current ?? '';
+          pointer.pressed = true;
+          pointer.active = false;
           requestPointerFrame();
+        };
+        const releasePointer = (event: PointerEvent) => {
+          const bounds = canvas.getBoundingClientRect();
+          const pointer = pointerStateRef.current;
+          const releaseX = event.clientX - bounds.left;
+          const releaseY = event.clientY - bounds.top;
+          const downNodeId = pointer.downNodeId;
+          const travel = Math.hypot(releaseX - pointer.downX, releaseY - pointer.downY);
+          pointer.downNodeId = '';
+          setPointerFromEvent(event);
+
+          if (
+            event.button !== 0
+            || !downNodeId
+            || hoveredIdRef.current !== downNodeId
+            || travel > 4
+          ) return;
+          if (clickFallbackFrameRef.current !== null) window.cancelAnimationFrame(clickFallbackFrameRef.current);
+          clickFallbackFrameRef.current = window.requestAnimationFrame(() => {
+            clickFallbackFrameRef.current = null;
+            if (hoveredIdRef.current !== downNodeId) return;
+            const node = runtimeNodeById.get(downNodeId);
+            if (!node) return;
+            selectNodeOnce(node);
+          });
         };
         canvas.addEventListener('pointermove', setPointerFromEvent, { passive: true });
         canvas.addEventListener('pointerdown', pressPointer, { passive: true });
-        canvas.addEventListener('pointerup', setPointerFromEvent, { passive: true });
+        canvas.addEventListener('pointerup', releasePointer, { passive: true });
         canvas.addEventListener('pointerleave', deactivatePointer, { passive: true });
         canvas.addEventListener('pointercancel', deactivatePointer, { passive: true });
         disposePointerInteraction = () => {
           canvas.removeEventListener('pointermove', setPointerFromEvent);
           canvas.removeEventListener('pointerdown', pressPointer);
-          canvas.removeEventListener('pointerup', setPointerFromEvent);
+          canvas.removeEventListener('pointerup', releasePointer);
           canvas.removeEventListener('pointerleave', deactivatePointer);
           canvas.removeEventListener('pointercancel', deactivatePointer);
         };
@@ -660,6 +896,7 @@ function GraphStage({
       if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
       if (pointerFrameRef.current !== null) window.cancelAnimationFrame(pointerFrameRef.current);
       if (hoverRefreshFrameRef.current !== null) window.cancelAnimationFrame(hoverRefreshFrameRef.current);
+      if (clickFallbackFrameRef.current !== null) window.cancelAnimationFrame(clickFallbackFrameRef.current);
       if (selectionFocusFrameRef.current !== null) window.cancelAnimationFrame(selectionFocusFrameRef.current);
       nodeObjects.clear();
       graphRef.current?._destructor?.();
@@ -671,7 +908,9 @@ function GraphStage({
     const graph = graphRef.current;
     if (!graph) return;
     graph.controls().autoRotate = false;
-    graph.refresh();
+    graph
+      .enableNodeDrag(!gravityRootId && window.matchMedia('(hover: hover) and (pointer: fine)').matches)
+      .refresh();
   }, [activeCluster, activeStoryIndex, gravityRootId, selectedId]);
 
   useEffect(() => {
@@ -682,6 +921,15 @@ function GraphStage({
 
     if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
     if (selectionFocusFrameRef.current !== null) window.cancelAnimationFrame(selectionFocusFrameRef.current);
+    draggedNodeIdRef.current = null;
+    for (const node of runtimeNodes) {
+      node.fx = node.x;
+      node.fy = node.y;
+      node.fz = node.z;
+      node.vx = 0;
+      node.vy = 0;
+      node.vz = 0;
+    }
     const starts = new Map(runtimeNodes.map((node) => [node.id, { x: node.x, y: node.y, z: node.z }]));
     const floorGroup = floorGroupRef.current;
     const camera = graph.camera();
@@ -860,7 +1108,23 @@ function GraphStage({
         }
         if (clearGravityCamera) gravityCameraRef.current = null;
         graph.controls().enabled = true;
-        graph.cooldownTicks(0).refresh();
+        if (!gravityRootId && !reducedMotionRef.current) {
+          for (const node of runtimeNodes) {
+            node.fx = undefined;
+            node.fy = undefined;
+            node.fz = undefined;
+            node.vx = 0;
+            node.vy = 0;
+            node.vz = 0;
+          }
+          graph
+            .refresh()
+            .cooldownTicks(Number.POSITIVE_INFINITY)
+            .cooldownTime(Number.POSITIVE_INFINITY)
+            .d3ReheatSimulation();
+        } else {
+          graph.cooldownTicks(0).refresh();
+        }
         setLayoutSettledVersion((version) => version + 1);
       }
     };
@@ -954,7 +1218,7 @@ function GraphStage({
     );
   }, [viewResetVersion]);
 
-  return <div ref={containerRef} className="absolute inset-0" aria-hidden="true" />;
+  return <div ref={containerRef} className={`graph-stage absolute inset-0 ${gravityRootId ? 'is-tree' : 'is-live'}`} aria-hidden="true" />;
 }
 /* oxlint-enable react/react-compiler */
 
@@ -1260,8 +1524,8 @@ export function MemoryUniverse() {
         {rootNode && selectedNode && <GravityLegend root={rootNode} selected={selectedNode} directCount={selectedDirectCount} summary={gravitySummary} />}
         {selectedNode && <Inspector key={selectedNode.id} node={selectedNode} directCount={selectedDirectCount} gravitySummary={gravitySummary} onClose={() => { setGravityRootId(null); setSelectedId(null); setActiveStoryIndex(-1); }} />}
         {!rootNode && <AxisCompass nodeCount={graph.nodes.length} linkCount={graph.links.length} />}
-        <div className="pointer-events-none absolute left-[286px] top-[92px] z-10 hidden xl:block"><div className="eyebrow">{rootNode ? 'CONTEXT TREE · ACTIVE' : 'GRAPH WORKBENCH · READY'}</div><div className="notebook-muted mt-2 flex items-center gap-2 text-[11px]"><span className="status-pulse !size-1.5" />{activeStoryIndex >= 0 ? storyChapters[activeStoryIndex]?.caption : selectedNode ? `${selectedNode.issueKey}의 직접 연결 ${selectedDirectCount}개를 밝게 강조했습니다.` : '노드를 클릭하면 화면이 해당 기록에 맞춰지고 관련 History가 트리로 정리됩니다.'}</div></div>
-        <div className="pointer-events-auto absolute bottom-[128px] left-[286px] z-20 hidden items-center gap-2 xl:flex"><div className="interaction-pill"><RotateCcw /> DRAG · VIEW</div><div className="interaction-pill"><Box /> SCROLL · SCALE</div><div className="interaction-pill"><CircleDot /> CLICK · FOCUS</div><div className="interaction-pill"><Sparkles /> HOVER · TRACE</div></div>
+        <div className="pointer-events-none absolute left-[286px] top-[92px] z-10 hidden xl:block"><div className="eyebrow">{rootNode ? 'CONTEXT TREE · ACTIVE' : 'GRAPH WORKBENCH · LIVE'}</div><div className="notebook-muted mt-2 flex items-center gap-2 text-[11px]"><span className="status-pulse !size-1.5" />{activeStoryIndex >= 0 ? storyChapters[activeStoryIndex]?.caption : selectedNode ? `${selectedNode.issueKey}의 직접 연결 ${selectedDirectCount}개를 밝게 강조했습니다.` : '마우스는 노드를 밀어내고, 드래그한 기억은 연결을 흔든 뒤 원래 성운으로 복귀합니다.'}</div></div>
+        <div className="pointer-events-auto absolute bottom-[128px] left-[286px] z-20 hidden items-center gap-2 xl:flex"><div className="interaction-pill"><Sparkles /> MOVE · REPEL</div><div className="interaction-pill"><RotateCcw /> DRAG · NODE / ORBIT</div><div className="interaction-pill"><Box /> SCROLL · SCALE</div><div className="interaction-pill"><CircleDot /> CLICK · FOCUS</div></div>
 
         {!graphReady && !graphError && <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"><div className="flex flex-col items-center"><div className="loading-orbit"><span /><span /><span /></div><div className="notebook-muted mt-5 font-mono text-[9px] tracking-[0.2em]">INITIALIZING MEMORY GRAPH</div></div></div>}
         {graphError && <div className="graph-error-backdrop pointer-events-auto absolute inset-0 z-20 flex items-center justify-center px-6"><div className="universe-panel max-w-md p-6 text-center"><Cpu className="mx-auto size-7 text-[#f85149]" /><h2 className="editorial-heading mt-4 text-lg">3D 기록 지도를 열 수 없습니다</h2><p className="notebook-muted mt-2 text-sm leading-6">WebGL이 활성화된 브라우저에서 다시 열면 Development Memory Graph를 확인할 수 있습니다.</p></div></div>}

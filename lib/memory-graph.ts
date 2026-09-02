@@ -40,9 +40,12 @@ export type MemoryNode = {
   x: number;
   y: number;
   z: number;
-  fx: number;
-  fy: number;
-  fz: number;
+  fx?: number;
+  fy?: number;
+  fz?: number;
+  vx?: number;
+  vy?: number;
+  vz?: number;
 };
 
 export type MemoryLink = {

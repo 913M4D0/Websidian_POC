@@ -726,6 +726,8 @@
 .axis-compass .notebook-stamp { display: inline-flex; padding: 4px 7px; color: #344f46; }
 .scene-container canvas { cursor: crosshair; }
 .scene-container canvas.clickable { cursor: pointer; }
+.graph-stage.is-live .scene-container canvas.clickable { cursor: grab; }
+.graph-stage.is-live .scene-container canvas.grabbable { cursor: grabbing !important; }
 
 /* VS Code Dark Modern-inspired workbench skin. */
 ::selection { color: #fff; background: #264f78; }
