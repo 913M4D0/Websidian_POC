@@ -74,6 +74,7 @@ type GraphInstance = {
   linkDirectionalParticleColor: (accessor: (link: MemoryLink) => string) => GraphInstance;
   linkDirectionalParticleSpeed: (accessor: (link: MemoryLink) => number) => GraphInstance;
   linkDirectionalArrowLength: (accessor: (link: MemoryLink) => number) => GraphInstance;
+  linkDirectionalArrowColor: (accessor: (link: MemoryLink) => string) => GraphInstance;
   linkCurvature: (accessor: (link: MemoryLink) => number) => GraphInstance;
   onNodeClick: (handler: (node: MemoryNode) => void) => GraphInstance;
   onNodeHover: (handler: (node: MemoryNode | null) => void) => GraphInstance;
@@ -214,6 +215,7 @@ function GraphStage({
   const threeRef = useRef<typeof import('three') | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const pointerFrameRef = useRef<number | null>(null);
+  const hoverRefreshFrameRef = useRef<number | null>(null);
   const hoveredIdRef = useRef<string | null>(null);
   const pointerStateRef = useRef({ x: -1000, y: -1000, active: false, pressed: false, lastFrame: 0 });
   const nodeObjectRefs = useRef<Map<string, import('three').Group>>(new Map());
@@ -294,6 +296,27 @@ function GraphStage({
           neighborIds.get(target)?.add(source);
         }
         neighborIdsRef.current = neighborIds;
+        const nodeById = new Map(nodesRef.current.map((node) => [node.id, node]));
+        let neighborLabelAnchor = '';
+        let neighborLabelIds = new Set<string>();
+        const getNeighborLabelIds = () => {
+          const anchorId = hoveredIdRef.current ?? stateRef.current.selectedId ?? '';
+          if (anchorId === neighborLabelAnchor) return neighborLabelIds;
+          neighborLabelAnchor = anchorId;
+          neighborLabelIds = new Set(
+            [...(neighborIdsRef.current.get(anchorId) ?? [])]
+              .map((id) => nodeById.get(id))
+              .filter((node): node is MemoryNode => Boolean(node))
+              .sort((a, b) => {
+                const aPriority = (a.isStory ? 3 : 0) + (a.isHub ? 1.5 : 0) + a.importance + a.relevance;
+                const bPriority = (b.isStory ? 3 : 0) + (b.isHub ? 1.5 : 0) + b.importance + b.relevance;
+                return bPriority - aPriority || a.id.localeCompare(b.id);
+              })
+              .slice(0, 10)
+              .map((node) => node.id),
+          );
+          return neighborLabelIds;
+        };
 
         const graph = new ForceGraph3D(containerRef.current, {
           controlType: 'orbit',
@@ -301,16 +324,27 @@ function GraphStage({
         }) as unknown as GraphInstance;
         graphRef.current = graph;
 
-        const isDirectHighlight = (link: MemoryLink) => {
+        const isHoverIncident = (link: MemoryLink) => {
+          const hover = hoveredIdRef.current;
+          if (!hover) return false;
+          const source = linkEndpointId(link.source);
+          const target = linkEndpointId(link.target);
+          return source === hover || target === hover;
+        };
+
+        const isSelectedIncident = (link: MemoryLink) => {
           const state = stateRef.current;
           const source = linkEndpointId(link.source);
           const target = linkEndpointId(link.target);
-          const hover = hoveredIdRef.current;
-          if (hover && (source === hover || target === hover)) return true;
-          for (let index = 0; index < Math.max(0, state.activeStoryIndex); index += 1) {
+          return Boolean(state.selectedId && (source === state.selectedId || target === state.selectedId));
+        };
+
+        const isActiveStoryLink = (link: MemoryLink) => {
+          const source = linkEndpointId(link.source);
+          const target = linkEndpointId(link.target);
+          for (let index = 0; index < Math.max(0, stateRef.current.activeStoryIndex); index += 1) {
             if (source === storyPath[index] && target === storyPath[index + 1]) return true;
           }
-          if (state.selectedId) return source === state.selectedId || target === state.selectedId;
           return false;
         };
 
@@ -342,22 +376,21 @@ function GraphStage({
             const hover = hoveredIdRef.current;
             const selectedNeighbor = Boolean(state.selectedId && neighborIdsRef.current.get(state.selectedId)?.has(node.id));
             const hoverNeighbor = Boolean(hover && neighborIdsRef.current.get(hover)?.has(node.id));
-            if (node.id === hover || node.id === state.selectedId || node.id === state.gravityRootId) return '#232722';
-            if (selectedNeighbor || hoverNeighbor) return node.color;
-            if (hover || state.selectedId) {
-              const focusDepth = gravity?.depthById.get(node.id);
-              if (focusDepth !== undefined) return hexToRgba(node.color, focusDepth === 1 ? 0.5 : focusDepth === 2 ? 0.36 : 0.26);
-              if (!gravity) return hexToRgba(node.color, 0.18);
-            }
+            if (node.id === hover) return '#dcdcaa';
+            if (node.id === state.selectedId) return '#4fc1ff';
+            if (node.id === state.gravityRootId) return '#569cd6';
+            if (hoverNeighbor) return hexToRgba(node.color, 0.92);
+            if (selectedNeighbor) return hexToRgba(node.color, 0.86);
             if (gravity) {
               const depth = gravity.depthById.get(node.id);
-              if (depth === 1) return node.color;
-              if (depth === 2) return hexToRgba(node.color, 0.72);
-              if (depth === 3) return hexToRgba(node.color, 0.48);
-              if (depth === undefined) return hexToRgba(node.color, node.isHub ? 0.32 : 0.24);
+              if (depth === 1) return hexToRgba(node.color, 0.54);
+              if (depth === 2) return hexToRgba(node.color, 0.4);
+              if (depth === 3) return hexToRgba(node.color, 0.26);
+              if (depth === undefined) return hexToRgba(node.color, node.isHub ? 0.14 : 0.08);
             }
-            if (state.activeCluster && node.cluster !== state.activeCluster && !node.isStory) return hexToRgba(node.color, 0.18);
-            return node.color;
+            if (hover || state.selectedId) return hexToRgba(node.color, node.isHub ? 0.18 : 0.12);
+            if (state.activeCluster && node.cluster !== state.activeCluster && !node.isStory) return hexToRgba(node.color, 0.1);
+            return hexToRgba(node.color, node.kind === 'query' || node.isHub ? 0.92 : node.isStory ? 0.84 : 0.72);
           })
           .nodeVal((node) => {
             const gravity = gravityLayoutRef.current;
@@ -366,44 +399,53 @@ function GraphStage({
             const hover = hoveredIdRef.current;
             const selectedNeighbor = Boolean(state.selectedId && neighborIdsRef.current.get(state.selectedId)?.has(node.id));
             const hoverNeighbor = Boolean(hover && neighborIdsRef.current.get(hover)?.has(node.id));
-            if (node.id === hover || node.id === state.selectedId || node.id === state.gravityRootId) return node.kind === 'query' ? 13 : 10;
+            if (node.id === hover || node.id === state.selectedId) return node.kind === 'query' ? 13 : 10;
+            if (node.id === state.gravityRootId) return node.kind === 'query' ? 13 : 9.5;
             if (selectedNeighbor || hoverNeighbor) return 5.8 + node.importance * 2;
             if (depth === 1) return 5.5 + node.importance * 2;
             if (depth === 2) return 4 + node.importance;
+            if (depth === 3) return 2.7 + node.importance * 0.7;
             if (node.kind === 'query') return 12;
             if (node.isHub) return 9;
             if (node.isStory) return 6;
             return (node.kind === 'decision' ? 3.2 : 1.7) + node.relevance * 2.1;
           })
-          .nodeOpacity(0.94)
+          .nodeOpacity(1)
           .nodeResolution(12)
           .nodeThreeObjectExtend(true)
           .nodeThreeObject((node) => {
             const gravity = gravityLayoutRef.current;
             const depth = gravity?.depthById.get(node.id);
             const state = stateRef.current;
+            const hover = hoveredIdRef.current;
+            const isHovered = node.id === hover;
+            const isSelected = node.id === state.selectedId;
+            const isRoot = node.id === state.gravityRootId;
+            const showNeighborLabel = getNeighborLabelIds().has(node.id);
             const group = new THREE.Group();
             nodeObjects.set(node.id, group);
-            if (!(node.isHub || node.isStory || node.id === state.selectedId || node.id === state.gravityRootId || node.id === hoveredIdRef.current || depth === 1)) return group;
+            if (!(node.isHub || node.isStory || isSelected || isRoot || isHovered || showNeighborLabel || depth === 1)) return group;
             const sprite = new SpriteText(node.isHub ? node.clusterLabel.toUpperCase() : node.issueKey);
-            sprite.color = node.id === state.selectedId || node.id === state.gravityRootId || node.id === hoveredIdRef.current ? '#232722' : node.color;
-            sprite.textHeight = node.isHub ? 5.1 : depth === 1 ? 2.7 : 3.2;
+            sprite.color = isHovered ? '#dcdcaa' : isSelected ? '#f3f3f3' : isRoot ? '#9cdcfe' : node.color;
+            sprite.textHeight = node.isHub ? 5.1 : depth === 1 || showNeighborLabel ? 2.7 : 3.2;
             sprite.fontWeight = node.isHub ? '700' : '600';
-            sprite.backgroundColor = node.id === state.selectedId || node.id === state.gravityRootId ? 'rgba(244,239,227,.9)' : false;
-            sprite.padding = node.id === state.selectedId || node.id === state.gravityRootId ? [3, 5] : 0;
+            sprite.backgroundColor = isSelected || isRoot || isHovered ? 'rgba(37,37,38,.94)' : false;
+            sprite.padding = isSelected || isRoot || isHovered ? [3, 5] : 0;
             sprite.borderRadius = 1;
             sprite.position.y = node.isHub ? 12 : 8;
             group.add(sprite);
 
-            if (node.kind === 'query' || node.id === state.selectedId || node.id === state.gravityRootId || node.id === hoveredIdRef.current) {
-              const ringColor = node.id === state.selectedId || node.id === hoveredIdRef.current ? '#8c5149' : '#344f46';
+            if (node.kind === 'query' || isSelected || isRoot || isHovered) {
+              const ringColor = isHovered ? '#dcdcaa' : isSelected ? '#4fc1ff' : isRoot ? '#569cd6' : '#c586c0';
+              const innerOpacity = isHovered ? 0.62 : isSelected ? 0.72 : isRoot ? 0.46 : 0.38;
+              const outerOpacity = isHovered ? 0.18 : isSelected ? 0.22 : isRoot ? 0.14 : 0.11;
               const ring = new THREE.Mesh(
-                new THREE.TorusGeometry(node.kind === 'query' ? 11.5 : 8.5, 0.18, 8, 64),
-                new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: 0.76 }),
+                new THREE.TorusGeometry(node.kind === 'query' ? 11.5 : 8.5, isSelected ? 0.15 : 0.12, 8, 64),
+                new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: innerOpacity }),
               );
               const orbit = new THREE.Mesh(
-                new THREE.TorusGeometry(node.kind === 'query' ? 13.2 : 9.8, 0.09, 7, 64),
-                new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: 0.4 }),
+                new THREE.TorusGeometry(node.kind === 'query' ? 13.2 : 9.8, isSelected ? 0.07 : 0.055, 7, 64),
+                new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: outerOpacity }),
               );
               orbit.position.set(0.45, -0.3, -0.25);
               orbit.rotation.z = Math.PI * 0.025;
@@ -412,28 +454,49 @@ function GraphStage({
             return group;
           })
           .linkColor((link) => {
-            if (isDirectHighlight(link)) return 'rgba(38,58,51,.9)';
-            if (isPrimaryTreeLink(link)) return 'rgba(52,79,70,.62)';
-            if (isFocusedCrossLink(link)) return 'rgba(125,91,73,.3)';
-            const source = nodesRef.current.find((node) => node.id === linkEndpointId(link.source));
-            if (gravityLayoutRef.current) return 'rgba(52,55,50,.09)';
-            if (stateRef.current.activeCluster && source?.cluster !== stateRef.current.activeCluster) return 'rgba(52,55,50,.07)';
-            return source ? hexToRgba(source.color, 0.2 + link.score * 0.08) : 'rgba(52,55,50,.18)';
+            if (isHoverIncident(link)) return 'rgba(220,220,170,.86)';
+            if (isSelectedIncident(link)) return 'rgba(79,193,255,.82)';
+            if (isActiveStoryLink(link)) return 'rgba(197,134,192,.68)';
+            if (isPrimaryTreeLink(link)) {
+              const gravity = gravityLayoutRef.current;
+              const depth = Math.max(
+                gravity?.depthById.get(linkEndpointId(link.source)) ?? 0,
+                gravity?.depthById.get(linkEndpointId(link.target)) ?? 0,
+              );
+              return `rgba(86,156,214,${depth <= 1 ? 0.46 : depth === 2 ? 0.29 : 0.17})`;
+            }
+            if (isFocusedCrossLink(link)) return 'rgba(197,134,192,.13)';
+            const source = nodeById.get(linkEndpointId(link.source));
+            if (gravityLayoutRef.current) return 'rgba(133,133,133,.045)';
+            if (stateRef.current.activeCluster && source?.cluster !== stateRef.current.activeCluster) return 'rgba(133,133,133,.06)';
+            return source ? hexToRgba(source.color, 0.12 + link.score * 0.1) : 'rgba(133,133,133,.12)';
           })
-          .linkWidth((link) => isDirectHighlight(link) ? 0.95 : 0)
+          .linkWidth((link) => isHoverIncident(link) ? 0.72 : isSelectedIncident(link) ? 0.88 : isActiveStoryLink(link) ? 0.6 : 0)
           .linkOpacity(1)
           .linkDirectionalParticles(() => 0)
           .linkDirectionalParticleWidth(() => 0)
-          .linkDirectionalParticleColor(() => '#344f46')
+          .linkDirectionalParticleColor(() => '#4daafc')
           .linkDirectionalParticleSpeed(() => 0)
-          .linkDirectionalArrowLength((link) => (isDirectHighlight(link) ? 1.45 : 0))
+          .linkDirectionalArrowLength((link) => (isHoverIncident(link) || isSelectedIncident(link) || isActiveStoryLink(link) ? 1.05 : 0))
+          .linkDirectionalArrowColor((link) => isHoverIncident(link)
+            ? 'rgba(220,220,170,.16)'
+            : isSelectedIncident(link)
+              ? 'rgba(79,193,255,.17)'
+              : isActiveStoryLink(link) ? 'rgba(197,134,192,.15)' : 'rgba(133,133,133,0)')
           .linkCurvature((link) => gravityLayoutRef.current
             ? isFocusedCrossLink(link) ? 0.065 : 0
             : link.story ? 0.08 : Math.max(0.015, (link.score - 0.35) * 0.04))
           .onNodeClick((node) => onSelectRef.current(node))
           .onNodeHover((node) => {
-            hoveredIdRef.current = node?.id ?? null;
-            graphRef.current?.refresh();
+            const nextHoveredId = node?.id ?? null;
+            if (nextHoveredId === hoveredIdRef.current) return;
+            hoveredIdRef.current = nextHoveredId;
+            if (hoverRefreshFrameRef.current === null) {
+              hoverRefreshFrameRef.current = window.requestAnimationFrame(() => {
+                hoverRefreshFrameRef.current = null;
+                graphRef.current?.refresh();
+              });
+            }
           })
           .onBackgroundClick(() => onSelectRef.current(null))
           .enableNodeDrag(false)
@@ -464,16 +527,16 @@ function GraphStage({
             dust[index * 3 + 2] = center.z + Math.cos(phi) * radius * 92;
           }
           dustGeometry.setAttribute('position', new THREE.BufferAttribute(dust, 3));
-          const material = new THREE.PointsMaterial({ color: cluster.color, size: 0.78, transparent: true, opacity: 0.085, sizeAttenuation: true, depthWrite: false });
+          const material = new THREE.PointsMaterial({ color: cluster.color, size: 0.72, transparent: true, opacity: 0.065, sizeAttenuation: true, depthWrite: false });
           nebulaMaterials.push(material);
           graph.scene().add(new THREE.Points(dustGeometry, material));
         }
         nebulaMaterialsRef.current = nebulaMaterials;
 
         const floorGroup = new THREE.Group();
-        const floorPlaneMaterial = new THREE.MeshBasicMaterial({ color: '#d8d0bf', transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+        const floorPlaneMaterial = new THREE.MeshBasicMaterial({ color: '#15171a', transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
         const floorPlane = new THREE.Mesh(new THREE.PlaneGeometry(760, 440), floorPlaneMaterial);
-        const floorGrid = new THREE.GridHelper(760, 30, '#6d7d76', '#a59e8e');
+        const floorGrid = new THREE.GridHelper(760, 30, '#264f78', '#2b2b2b');
         const gridMaterial = floorGrid.material as import('three').Material;
         gridMaterial.transparent = true;
         gridMaterial.opacity = 0;
@@ -596,6 +659,7 @@ function GraphStage({
       disposePointerInteraction?.();
       if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
       if (pointerFrameRef.current !== null) window.cancelAnimationFrame(pointerFrameRef.current);
+      if (hoverRefreshFrameRef.current !== null) window.cancelAnimationFrame(hoverRefreshFrameRef.current);
       if (selectionFocusFrameRef.current !== null) window.cancelAnimationFrame(selectionFocusFrameRef.current);
       nodeObjects.clear();
       graphRef.current?._destructor?.();
@@ -738,7 +802,7 @@ function GraphStage({
     graph.refresh().cooldownTicks(Number.POSITIVE_INFINITY).d3ReheatSimulation();
     const duration = reducedMotionRef.current ? 1 : gravityRootId ? 920 : 680;
     const startedAt = performance.now();
-    const nebulaStartOpacity = nebulaMaterialsRef.current[0]?.opacity ?? 0.085;
+    const nebulaStartOpacity = nebulaMaterialsRef.current[0]?.opacity ?? 0.065;
     const floorStartOpacity = floorMaterialsRef.current[0]?.opacity ?? 0;
     const easeOut = (value: number) => 1 - Math.pow(1 - value, 3);
     const easeInOut = (value: number) => value < 0.5 ? 4 * value * value * value : 1 - Math.pow(-2 * value + 2, 3) / 2;
@@ -777,8 +841,8 @@ function GraphStage({
       }
 
       const materialProgress = easeOut(overall);
-      const nebulaTargetOpacity = gravityRootId ? 0.018 : 0.085;
-      const floorTargetOpacity = gravityRootId ? 0.075 : 0;
+      const nebulaTargetOpacity = gravityRootId ? 0.014 : 0.065;
+      const floorTargetOpacity = gravityRootId ? 0.07 : 0;
       for (const material of nebulaMaterialsRef.current) material.opacity = nebulaStartOpacity + (nebulaTargetOpacity - nebulaStartOpacity) * materialProgress;
       for (const material of floorMaterialsRef.current) material.opacity = floorStartOpacity + (floorTargetOpacity - floorStartOpacity) * materialProgress;
       const cameraProgress = easeInOut(overall);
@@ -908,15 +972,15 @@ function ClusterRail({
   return (
     <aside data-graph-obstruction="left" className="universe-panel pointer-events-auto absolute bottom-[118px] left-5 top-[88px] z-20 hidden w-[246px] flex-col overflow-hidden xl:flex">
       <div className="notebook-rule px-4 pb-3 pt-4">
-        <div className="eyebrow">NOTEBOOK INDEX</div>
+        <div className="eyebrow">MEMORY EXPLORER</div>
         <div className="mt-2 flex items-end justify-between">
-          <div><p className="editorial-heading text-[22px]">8 Service Sections</p><p className="notebook-muted mt-0.5 text-[11px]">24 modules · {nodes.length} records</p></div>
-          <Waypoints className="mb-1 size-4 text-[#344f46]" />
+          <div><p className="editorial-heading text-[22px]">8 Service Domains</p><p className="notebook-muted mt-0.5 text-[11px]">24 modules · {nodes.length} memory nodes</p></div>
+          <Waypoints className="mb-1 size-4 text-[#4daafc]" />
         </div>
       </div>
       <div className="flex-1 px-2 py-2">
         <button type="button" onClick={() => onSelect(null)} className={`cluster-item ${activeCluster === null ? 'is-active' : ''}`}>
-          <span className="cluster-dot bg-[#282a26]" />
+          <span className="cluster-dot bg-[#cccccc]" />
           <span className="min-w-0 flex-1"><strong>전체 개발 기록</strong><small>ALL MEMORIES VISIBLE</small></span><span className="cluster-count">{nodes.length}</span>
         </button>
         {clusters.map((cluster) => (
@@ -927,7 +991,7 @@ function ClusterRail({
         ))}
       </div>
       <div className="index-summary m-3 p-3">
-        <div className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.1em]"><Activity className="size-3" /> RECORD REGISTER</div>
+        <div className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.1em]"><Activity className="size-3" /> GRAPH INDEX</div>
         <div className="mt-3 grid grid-cols-3 gap-2">
           {([[String(nodes.length), 'records'], [String(totalLinks), 'relations'], ['8', 'sections']] as const).map(([value, label]) => (
             <div key={label}><div className="font-mono text-[13px]">{value}</div><div className="notebook-muted text-[9px] uppercase tracking-[0.08em]">{label}</div></div>
@@ -942,13 +1006,13 @@ function AxisCompass({ nodeCount, linkCount }: { nodeCount: number; linkCount: n
   return (
     <div className="axis-compass pointer-events-none absolute right-5 top-[88px] z-20 hidden xl:block">
       <div className="notebook-rule flex items-center justify-between gap-4 px-3.5 py-2.5">
-        <div><div className="eyebrow">MEMORY NOTEBOOK</div><p className="notebook-muted mt-1 text-[10px]">모든 개발 기록과 관계를 펼친 색인입니다.</p></div>
+        <div><div className="eyebrow">GRAPH WORKBENCH</div><p className="notebook-muted mt-1 text-[10px]">모든 개발 기록과 관계를 펼친 작업 영역입니다.</p></div>
         <span className="notebook-stamp">ALL VISIBLE</span>
       </div>
-      <div className="grid grid-cols-3 gap-px bg-black/[0.08]">
-        <div className="axis-cell"><b className="text-[#416f72]">{nodeCount}</b><span>NODES</span><small>8 service sections</small></div>
-        <div className="axis-cell"><b className="text-[#6f5b78]">{linkCount}</b><span>RELATIONS</span><small>every edge indexed</small></div>
-        <div className="axis-cell"><b className="text-[#52705d]">3</b><span>HOPS</span><small>click → context tree</small></div>
+      <div className="grid grid-cols-3 gap-px bg-[#2b2b2b]">
+        <div className="axis-cell"><b className="text-[#4ec9b0]">{nodeCount}</b><span>NODES</span><small>8 service domains</small></div>
+        <div className="axis-cell"><b className="text-[#c586c0]">{linkCount}</b><span>RELATIONS</span><small>every edge indexed</small></div>
+        <div className="axis-cell"><b className="text-[#569cd6]">3</b><span>HOPS</span><small>click → context tree</small></div>
       </div>
     </div>
   );
@@ -958,9 +1022,9 @@ function GravityLegend({ root, selected, directCount, summary }: { root: MemoryN
   return (
     <div data-graph-obstruction="top" className="gravity-legend pointer-events-auto absolute left-1/2 top-[86px] z-20 flex -translate-x-1/2 items-center gap-1.5">
       <span className="gravity-token is-root"><i />{root.issueKey} · ROOT</span>
-      <span className="gravity-token is-direct"><i />{selected.issueKey} · {directCount} DIRECT</span>
-      <span className="gravity-token is-history"><i />2–3 HOP · HISTORY</span>
-      <span className="gravity-token is-floor"><i />{summary?.sedimentCount ?? 0} MARGIN</span>
+      <span className="gravity-token is-direct"><i />{selected.issueKey} · {directCount} DIRECT · 86%</span>
+      <span className="gravity-token is-history"><i />2–3 HOP · 40 / 26%</span>
+      <span className="gravity-token is-floor"><i />{summary?.sedimentCount ?? 0} BACKGROUND · 8%</span>
     </div>
   );
 }
@@ -985,11 +1049,11 @@ function Inspector({ node, directCount, gravitySummary, onClose }: { node: Memor
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-5 px-5 py-5">
           <section className="coordinate-card gravity-card">
-            <div className="flex items-center justify-between"><div className="section-label"><Waypoints /> Context Gravity</div><span className="font-mono text-[8px] text-[#52705d]">ROOT PINNED</span></div>
+            <div className="flex items-center justify-between"><div className="section-label"><Waypoints /> Context Gravity</div><span className="font-mono text-[8px] text-[#4daafc]">ROOT PINNED</span></div>
             <div className="mt-3 space-y-2.5">
-              <div className="coordinate-row"><b className="text-[#416f72]">1</b><span><small>현재 선택의 직접 연결 · 최우선 강조</small><strong>{directCount}개 Memory Node</strong></span><code>100%</code></div>
-              <div className="coordinate-row"><b className="text-[#6f5b78]">3</b><span><small>History Tree</small><strong>{gravitySummary?.treeCount ?? '—'}개 노드를 3-hop으로 정렬</strong><em>주 관계선 + 보조 교차 관계선</em></span><code>TREE</code></div>
-              <div className="coordinate-row"><b className="text-[#52705d]">↓</b><span><small>Notebook Margin</small><strong>{gravitySummary?.sedimentCount ?? '—'}개 비관련 기록도 여백에 유지</strong><i><span style={{ width: `${node.relevance * 100}%` }} /></i></span><code>{Math.round(node.relevance * 100)}%</code></div>
+              <div className="coordinate-row"><b className="text-[#4fc1ff]">1</b><span><small>현재 선택 100% · 직접 연결 강조</small><strong>{directCount}개 Memory Node</strong></span><code>86%</code></div>
+              <div className="coordinate-row"><b className="text-[#c586c0]">3</b><span><small>History Tree</small><strong>{gravitySummary?.treeCount ?? '—'}개 노드를 3-hop으로 정렬</strong><em>주 관계선 + 보조 교차 관계선</em></span><code>40 / 26%</code></div>
+              <div className="coordinate-row"><b className="text-[#858585]">↓</b><span><small>Background Layer</small><strong>{gravitySummary?.sedimentCount ?? '—'}개 비관련 기록도 배경에 유지</strong><i><span style={{ width: `${node.relevance * 100}%` }} /></i></span><code>8%</code></div>
             </div>
           </section>
           <section><div className="section-label"><Network /> 관련도 산정 근거</div><div className="mt-2.5 space-y-1.5">{node.relevanceReasons.map((reason) => <div key={reason} className="evidence-reason"><span />{reason}</div>)}</div></section>
@@ -1026,10 +1090,10 @@ function HistoryRail({ activeIndex, playing, gravityMode, onPlay, onSelect }: { 
       <div className="flex h-full items-center">
         <div className={`notebook-rule-right flex h-full shrink-0 items-center gap-3 max-md:w-auto max-md:border-r-0 max-md:px-3 ${gravityMode ? 'w-[150px] px-3' : 'w-[220px] px-4'}`}>
           <Button type="button" onClick={onPlay} size="icon-lg" className="replay-button size-11" aria-label={playing ? '기억 경로 일시 정지' : '기억 경로 재생'}>{playing ? <Pause className="size-4" /> : <Play className="ml-0.5 size-4" />}</Button>
-          <div className="max-md:hidden"><div className="eyebrow">REVIEW NOTES</div><div className="mt-1 text-[12px]">Query 탐색 경로</div></div>
+          <div className="max-md:hidden"><div className="eyebrow">HISTORY OUTPUT</div><div className="mt-1 text-[12px]">Query 탐색 경로</div></div>
         </div>
         <div ref={scrollRef} className={`relative flex min-w-0 flex-1 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${gravityMode ? 'px-2' : 'px-4'}`}>
-          <div className="absolute left-8 right-8 top-[31px] h-px bg-black/[0.12]" />
+          <div className="absolute left-8 right-8 top-[31px] h-px bg-white/[0.12]" />
           <div className="history-progress absolute left-8 top-[31px] h-px transition-[width] duration-500" style={{ width: `${Math.max(0, activeIndex) / (storyChapters.length - 1) * 88}%` }} />
           <div className={`relative z-10 flex min-w-max flex-1 items-center justify-between ${gravityMode ? 'gap-2' : 'gap-6'}`}>
             {storyChapters.map((chapter, index) => {
@@ -1166,15 +1230,15 @@ export function MemoryUniverse() {
       <main className="memory-shell fixed inset-0 overflow-clip">
         <div className="memory-aurora" /><div className="memory-grid" />
         <GraphStage nodes={graph.nodes} links={graph.links} gravityRootId={gravityRootId} selectedId={selectedId} activeCluster={activeCluster} activeStoryIndex={activeStoryIndex} viewResetVersion={viewResetVersion} selectionFocusVersion={selectionFocusVersion} onSelect={handleSelect} onGravityChange={setGravitySummary} onReady={() => setGraphReady(true)} onError={() => setGraphError(true)} />
-        <div className="sr-only" aria-live="polite">{selectedNode ? `${selectedNode.issueKey} 선택. 직접 연결 ${selectedDirectCount}개, History Tree ${gravitySummary?.treeCount ?? 0}개.` : '전체 Development Memory Notebook 보기.'}</div>
+        <div className="sr-only" aria-live="polite">{selectedNode ? `${selectedNode.issueKey} 선택. 직접 연결 ${selectedDirectCount}개, History Tree ${gravitySummary?.treeCount ?? 0}개.` : '전체 Development Memory Graph 보기.'}</div>
 
         <header data-graph-obstruction="top" className="notebook-header pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-[68px] items-center gap-4 px-5">
           <div className="pointer-events-auto flex min-w-[248px] items-center gap-3 max-lg:min-w-0">
             <div className="logo-mark"><Network className="size-[17px]" /></div>
-            <div><div className="flex items-center gap-2"><span className="editorial-heading text-[15px] tracking-[0.12em]">WEBSIDIAN</span><span className="notebook-stamp hidden sm:inline">NOTE 04</span></div><p className="notebook-muted mt-0.5 hidden text-[9px] uppercase tracking-[0.16em] sm:block">DEVELOPMENT MEMORY NOTEBOOK</p></div>
+            <div><div className="flex items-center gap-2"><span className="editorial-heading text-[15px] tracking-[0.12em]">WEBSIDIAN</span><span className="notebook-stamp hidden sm:inline">GRAPH 01</span></div><p className="notebook-muted mt-0.5 hidden text-[9px] uppercase tracking-[0.16em] sm:block">DEVELOPMENT MEMORY GRAPH</p></div>
           </div>
           <form onSubmit={submitQuery} className="pointer-events-auto mx-auto w-full max-w-[620px]">
-            <div className="search-orbit group relative"><Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#344f46]" /><Input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} aria-label="새로운 이슈 검색" className="notebook-search h-10 pl-10 pr-20 text-[12px]" placeholder="새로운 이슈를 기록하고 History를 탐색하세요" /><span className="search-shortcut absolute right-3 top-1/2 -translate-y-1/2 px-2 py-1 font-mono text-[8px]"><Command className="mr-1 inline size-2.5" />K</span></div>
+            <div className="search-orbit group relative"><Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#9d9d9d]" /><Input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} aria-label="새로운 이슈 검색" className="notebook-search h-10 pl-10 pr-20 text-[12px]" placeholder="새로운 이슈를 입력해 History를 탐색하세요" /><span className="search-shortcut absolute right-3 top-1/2 -translate-y-1/2 px-2 py-1 font-mono text-[8px]"><Command className="mr-1 inline size-2.5" />K</span></div>
           </form>
           <div className="pointer-events-auto flex min-w-[248px] items-center justify-end gap-2 max-lg:min-w-0">
             <div className="notebook-rule-right hidden items-center gap-3 pr-4 2xl:flex"><div className="text-right"><div className="font-mono text-[11px]">{graph.nodes.length} / {graph.links.length}</div><div className="notebook-muted text-[8px] uppercase tracking-[0.1em]">records / relations</div></div><span className="status-pulse" /></div>
@@ -1196,11 +1260,11 @@ export function MemoryUniverse() {
         {rootNode && selectedNode && <GravityLegend root={rootNode} selected={selectedNode} directCount={selectedDirectCount} summary={gravitySummary} />}
         {selectedNode && <Inspector key={selectedNode.id} node={selectedNode} directCount={selectedDirectCount} gravitySummary={gravitySummary} onClose={() => { setGravityRootId(null); setSelectedId(null); setActiveStoryIndex(-1); }} />}
         {!rootNode && <AxisCompass nodeCount={graph.nodes.length} linkCount={graph.links.length} />}
-        <div className="pointer-events-none absolute left-[286px] top-[92px] z-10 hidden xl:block"><div className="eyebrow">{rootNode ? 'CONTEXT TREE · OPEN' : 'MEMORY NOTEBOOK · OPEN'}</div><div className="notebook-muted mt-2 flex items-center gap-2 text-[11px]"><span className="status-pulse !size-1.5" />{activeStoryIndex >= 0 ? storyChapters[activeStoryIndex]?.caption : selectedNode ? `${selectedNode.issueKey}의 직접 연결 ${selectedDirectCount}개를 잉크로 표시했습니다.` : '노드를 클릭하면 화면이 해당 기록에 맞춰지고 관련 History가 트리로 정리됩니다.'}</div></div>
+        <div className="pointer-events-none absolute left-[286px] top-[92px] z-10 hidden xl:block"><div className="eyebrow">{rootNode ? 'CONTEXT TREE · ACTIVE' : 'GRAPH WORKBENCH · READY'}</div><div className="notebook-muted mt-2 flex items-center gap-2 text-[11px]"><span className="status-pulse !size-1.5" />{activeStoryIndex >= 0 ? storyChapters[activeStoryIndex]?.caption : selectedNode ? `${selectedNode.issueKey}의 직접 연결 ${selectedDirectCount}개를 밝게 강조했습니다.` : '노드를 클릭하면 화면이 해당 기록에 맞춰지고 관련 History가 트리로 정리됩니다.'}</div></div>
         <div className="pointer-events-auto absolute bottom-[128px] left-[286px] z-20 hidden items-center gap-2 xl:flex"><div className="interaction-pill"><RotateCcw /> DRAG · VIEW</div><div className="interaction-pill"><Box /> SCROLL · SCALE</div><div className="interaction-pill"><CircleDot /> CLICK · FOCUS</div><div className="interaction-pill"><Sparkles /> HOVER · TRACE</div></div>
 
-        {!graphReady && !graphError && <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"><div className="flex flex-col items-center"><div className="loading-orbit"><span /><span /><span /></div><div className="notebook-muted mt-5 font-mono text-[9px] tracking-[0.2em]">OPENING DEVELOPMENT NOTEBOOK</div></div></div>}
-        {graphError && <div className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center bg-[#e8e2d4]/85 px-6"><div className="universe-panel max-w-md p-6 text-center"><Cpu className="mx-auto size-7 text-[#8a6843]" /><h2 className="editorial-heading mt-4 text-lg">3D 기록 지도를 열 수 없습니다</h2><p className="notebook-muted mt-2 text-sm leading-6">WebGL이 활성화된 브라우저에서 다시 열면 Development Memory Notebook을 확인할 수 있습니다.</p></div></div>}
+        {!graphReady && !graphError && <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"><div className="flex flex-col items-center"><div className="loading-orbit"><span /><span /><span /></div><div className="notebook-muted mt-5 font-mono text-[9px] tracking-[0.2em]">INITIALIZING MEMORY GRAPH</div></div></div>}
+        {graphError && <div className="graph-error-backdrop pointer-events-auto absolute inset-0 z-20 flex items-center justify-center px-6"><div className="universe-panel max-w-md p-6 text-center"><Cpu className="mx-auto size-7 text-[#f85149]" /><h2 className="editorial-heading mt-4 text-lg">3D 기록 지도를 열 수 없습니다</h2><p className="notebook-muted mt-2 text-sm leading-6">WebGL이 활성화된 브라우저에서 다시 열면 Development Memory Graph를 확인할 수 있습니다.</p></div></div>}
         <HistoryRail activeIndex={activeStoryIndex} playing={playing} gravityMode={Boolean(rootNode)} onPlay={() => (playing ? stopStory() : playStory())} onSelect={selectStoryStep} />
       </main>
     </TooltipProvider>
