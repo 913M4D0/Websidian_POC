@@ -377,7 +377,7 @@ function GraphStage({
             const selectedNeighbor = Boolean(state.selectedId && neighborIdsRef.current.get(state.selectedId)?.has(node.id));
             const hoverNeighbor = Boolean(hover && neighborIdsRef.current.get(hover)?.has(node.id));
             if (node.id === hover) return '#dcdcaa';
-            if (node.id === state.selectedId) return '#4fc1ff';
+            if (node.id === state.selectedId) return node.color;
             if (node.id === state.gravityRootId) return '#569cd6';
             if (hoverNeighbor) return hexToRgba(node.color, 0.92);
             if (selectedNeighbor) return hexToRgba(node.color, 0.86);
@@ -436,9 +436,9 @@ function GraphStage({
             group.add(sprite);
 
             if (node.kind === 'query' || isSelected || isRoot || isHovered) {
-              const ringColor = isHovered ? '#dcdcaa' : isSelected ? '#4fc1ff' : isRoot ? '#569cd6' : '#c586c0';
-              const innerOpacity = isHovered ? 0.62 : isSelected ? 0.72 : isRoot ? 0.46 : 0.38;
-              const outerOpacity = isHovered ? 0.18 : isSelected ? 0.22 : isRoot ? 0.14 : 0.11;
+              const ringColor = isHovered ? '#dcdcaa' : isSelected ? node.color : isRoot ? '#569cd6' : '#c586c0';
+              const innerOpacity = isHovered ? 0.9 : isSelected ? 0.82 : isRoot ? 0.46 : 0.38;
+              const outerOpacity = isHovered ? 0.34 : isSelected ? 0.28 : isRoot ? 0.14 : 0.11;
               const ring = new THREE.Mesh(
                 new THREE.TorusGeometry(node.kind === 'query' ? 11.5 : 8.5, isSelected ? 0.15 : 0.12, 8, 64),
                 new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: innerOpacity }),
