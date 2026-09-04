@@ -68,10 +68,10 @@ npm run build
 
 ## GitHub 등록 현황
 
-2026-09-04 첫 `create_issue` 요청이 `403 Resource not accessible by integration`으로 거절됐다.
-**실제 생성 0건**, 대표 24건의 등록 원문 준비 완료. 연결 계정은 저장소 관리자지만 연동 앱의 Issues 쓰기 범위는 별도다.
-GitHub 앱에 해당 저장소의 Issues 쓰기 권한을 허용한 뒤 등록을 재개한다. 권한을 우회하거나 다른 계정으로 대신 등록하지 않는다.
-등록 시 본문의 `websidian-seed:v1:WS-xxx`를 중복 방지 키로 사용하고, 반환된 실제 번호/URL만 바인딩한다. 종료 이슈 21건은 생성 후 close, 신규 3건은 open으로 유지한다. GitHub 생성 시각을 가상 발생일로 위장하지 않는다.
+2026-09-04 연결 권한 재확인 후 [대표 이슈 24건](https://github.com/913M4D0/Websidian_POC/issues?q=is%3Aissue)을 실제 등록했다 (#1~#24).
+과거 해결 이슈 21건은 closed, 신규 WS-008/#8·WS-016/#16·WS-024/#24는 open 상태다. 일반 이슈 270건은 내부 데이터로만 유지한다.
+본문의 `websidian-seed:v1:WS-xxx`를 중복 방지 키로 사용하고, 생성 후 다시 조회한 실제 번호/URL만 `data/github-bindings.json`에 기록했다. 내부 원문과 노드 ID는 변경하지 않는다.
+모든 기록은 합성 POC 데이터로 고지하며, GitHub 생성 시각을 가상 발생일로 위장하지 않는다.
 현재 UI의 생성·처리는 내부 저장소 전용이며 GitHub 양방향 동기화는 아직 구현되지 않았다.
 
 ## 보안 / 운영

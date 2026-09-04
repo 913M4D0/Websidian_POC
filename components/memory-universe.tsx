@@ -396,6 +396,9 @@ export function MemoryUniverse() {
   );
   const selected = selectedId ? (byId.get(selectedId) ?? null) : null;
   const openCount = issues.filter((issue) => issue.status === 'open').length;
+  const githubCount = issues.filter(
+    (issue) => issue.source?.platform === 'github',
+  ).length;
   const highlightedIds = useMemo(
     () =>
       new Set(
@@ -776,8 +779,10 @@ export function MemoryUniverse() {
               </section>
             )}
             <div className="sidebar-bottom">
-              <GitBranch size={13} /> GitHub 등록 대기 24건 · 내부 이슈{' '}
-              {issues.length}건
+              <GitBranch size={13} />
+              {loading
+                ? '불러오는 중…'
+                : `GitHub 연결 ${githubCount}건 · 내부 이슈 ${issues.length}건`}
             </div>
           </aside>
         )}

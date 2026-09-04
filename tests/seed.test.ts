@@ -40,6 +40,45 @@ void test('294 source-neutral issue records and 24 GitHub drafts, no embedded qu
     ['WS-008', 'WS-016', 'WS-024'],
   );
 });
+void test('24 GitHub bindings attach only to representative issue identities', () => {
+  const drafts = JSON.parse(
+    readFileSync(
+      new URL('../data/github-issue-drafts.json', import.meta.url),
+      'utf8',
+    ),
+  ) as { seedId: string }[];
+  const bindings = JSON.parse(
+    readFileSync(
+      new URL('../data/github-bindings.json', import.meta.url),
+      'utf8',
+    ),
+  ) as Record<string, NonNullable<Issue['source']>>;
+  assert.equal(Object.keys(bindings).length, 24);
+  assert.deepEqual(
+    Object.keys(bindings).sort(),
+    drafts.map((draft) => draft.seedId).sort(),
+  );
+  const seedIds = new Set(issues.map((issue) => issue.id));
+  const sources = Object.values(bindings);
+  assert.equal(new Set(sources.map((source) => source.externalId)).size, 24);
+  assert.equal(new Set(sources.map((source) => source.url)).size, 24);
+  for (const [id, source] of Object.entries(bindings)) {
+    assert.ok(seedIds.has(id));
+    assert.equal(source.platform, 'github');
+    assert.match(source.externalId, /^[1-9]\d*$/);
+    assert.equal(
+      source.url,
+      `https://github.com/913M4D0/Websidian_POC/issues/${source.externalId}`,
+    );
+  }
+  const linkedIssues = issues.map((issue) => ({
+    ...issue,
+    source: bindings[issue.id],
+  }));
+  assert.equal(linkedIssues.length, 294);
+  assert.equal(new Set(linkedIssues.map((issue) => issue.id)).size, 294);
+  assert.equal(linkedIssues.filter((issue) => issue.source).length, 24);
+});
 void test('real scenario data is searchable and query state leaves source records unchanged', () => {
   const before = JSON.stringify(issues);
   for (const id of ['WS-008', 'WS-016', 'WS-024']) {
