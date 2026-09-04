@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   IssueInputError,
+  appendIssueActivity,
   parseCreateIssue,
   resolveIssue,
   type Issue,
@@ -151,6 +152,118 @@ void test('resolve rejects missing/stale revision and already closed issues', ()
       ),
     (error: unknown) =>
       error instanceof IssueInputError && error.status === 409,
+  );
+});
+
+void test('progress notes append with audit and revision but never become completed memories', () => {
+  const original = fixture();
+  const before = JSON.stringify(original);
+  const next = appendIssueActivity(
+    original,
+    {
+      expectedRevision: 1,
+      body: '담당 팀에 재현 조건을 확인했습니다.',
+      title: 'override',
+      author: 'spoofed',
+    },
+    'actual-actor',
+    '2026-09-04T05:00:00Z',
+  );
+  assert.equal(JSON.stringify(original), before);
+  assert.equal(next.id, original.id);
+  assert.equal(next.title, original.title);
+  assert.equal(next.body, original.body);
+  assert.equal(next.status, 'open');
+  assert.equal(next.memory, undefined);
+  assert.equal(next.resolution, null);
+  assert.equal(next.revision, 2);
+  assert.equal(next.activities[0].author, 'actual-actor');
+  assert.equal(next.activities[0].id, 'issue-1:activity:2');
+  assert.throws(
+    () =>
+      appendIssueActivity(
+        next,
+        { expectedRevision: 1, body: 'duplicate' },
+        'actor',
+        '2026-09-04',
+      ),
+    (error: unknown) =>
+      error instanceof IssueInputError && error.status === 409,
+  );
+  assert.throws(
+    () =>
+      appendIssueActivity(
+        { ...next, status: 'closed' },
+        { expectedRevision: 2, body: 'late' },
+        'actor',
+        '2026-09-04',
+      ),
+    (error: unknown) =>
+      error instanceof IssueInputError && error.status === 409,
+  );
+});
+
+void test('completion keeps original resources and creates deterministic separate memory metadata', () => {
+  const original = fixture();
+  const evidence = fixture({ id: 'history-1', status: 'closed' });
+  const input = {
+    expectedRevision: 1,
+    body: '기존 접수 식별키 검증을 재사용했습니다.',
+    outcome: '중복 접수 해결',
+    resources: [
+      {
+        key: 'procedure:reception',
+        label: 'attempted replacement',
+        kind: 'changed',
+      },
+      { key: 'document:checklist', label: '접수 점검표', kind: '문서' },
+    ],
+    evidenceIssueIds: ['history-1', 'history-1'],
+    memory: { method: 'fake-llm' },
+  };
+  const resolved = resolveIssue(original, input, 'actor', '2026-09-04', [
+    evidence,
+  ]);
+  assert.deepEqual(resolved.resources[0], original.resources[0]);
+  assert.equal(resolved.resources.length, 2);
+  assert.equal(original.resources.length, 1);
+  assert.equal(resolved.memory?.method, 'extractive-v1');
+  assert.equal(resolved.memory?.sourceRevision, resolved.revision);
+  assert.deepEqual(resolved.memory?.relatedIssueIds, ['history-1']);
+  assert.deepEqual(resolved.resolution?.evidenceIssueIds, ['history-1']);
+  assert.ok(resolved.memory!.terms.includes('식별키'));
+  assert.deepEqual(
+    resolved,
+    resolveIssue(original, input, 'actor', '2026-09-04', [evidence]),
+  );
+  assert.equal(resolved.body, original.body);
+});
+
+void test('completion rejects missing, private, self, and unfinished evidence references', () => {
+  const original = fixture();
+  const input = { expectedRevision: 1, body: '처리 기록', outcome: '해결' };
+  for (const id of ['missing', original.id, 'other-open']) {
+    assert.throws(
+      () =>
+        resolveIssue(
+          original,
+          { ...input, evidenceIssueIds: [id] },
+          'actor',
+          '2026-09-04',
+          [fixture({ id: 'other-open' })],
+        ),
+      IssueInputError,
+    );
+  }
+  assert.throws(
+    () =>
+      resolveIssue(
+        original,
+        { ...input, evidenceIssueIds: 'history-1' },
+        'actor',
+        '2026-09-04',
+      ),
+    IssueInputError,
   );
 });
 

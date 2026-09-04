@@ -11,6 +11,15 @@ export type IssueResolution = {
   author: string;
   body: string;
   outcome: string;
+  evidenceIssueIds?: string[];
+};
+export type IssueMemory = {
+  version: 1;
+  compiledAt: string;
+  method: 'extractive-v1';
+  sourceRevision: number;
+  terms: string[];
+  relatedIssueIds: string[];
 };
 export type IssueAttributes = Record<string, string | number>;
 export type Issue = {
@@ -29,6 +38,7 @@ export type Issue = {
   synthetic: boolean;
   revision: number;
   source?: { platform: string; externalId: string; url: string };
+  memory?: IssueMemory;
 };
 export type CreateIssueInput = Pick<
   Issue,
@@ -152,14 +162,7 @@ export function parseCreateIssue(raw: unknown): CreateIssueInput {
   };
 }
 
-/** Complete the existing issue without replacing its original title/body or source. */
-export function resolveIssue(
-  issue: Issue,
-  raw: unknown,
-  actor: string,
-  now: string,
-): Issue {
-  const input = record(raw, '처리 내용');
+function assertEditable(issue: Issue, input: Record<string, unknown>) {
   if (
     !Number.isSafeInteger(input.expectedRevision) ||
     (input.expectedRevision as number) < 1
@@ -174,15 +177,113 @@ export function resolveIssue(
   }
   if (issue.status === 'closed')
     throw new IssueInputError('이미 처리 완료된 이슈입니다.', 409);
-  const body = text(input.body, '처리 내용', 20000);
-  const outcome = text(input.outcome, '처리 결과', 240);
+}
+
+function auditIdentity(actor: string, now: string) {
   const author = text(actor, '처리자', 240);
   const timestamp = new Date(now);
   if (!Number.isFinite(timestamp.valueOf()))
     throw new IssueInputError('처리 시각이 올바르지 않습니다.');
-  const at = timestamp.toISOString();
+  return { author, at: timestamp.toISOString() };
+}
+
+/** Append a progress note; original issue fields remain unchanged. */
+export function appendIssueActivity(
+  issue: Issue,
+  raw: unknown,
+  actor: string,
+  now: string,
+): Issue {
+  const input = record(raw, '진행 기록');
+  assertEditable(issue, input);
+  const body = text(input.body, '진행 기록', 20000);
+  const { author, at } = auditIdentity(actor, now);
   const revision = issue.revision + 1;
   return {
+    ...issue,
+    revision,
+    activities: [
+      ...issue.activities.map((activity) => ({ ...activity })),
+      { id: `${issue.id}:activity:${revision}`, at, author, body },
+    ],
+  };
+}
+
+function evidenceIds(value: unknown, issueId: string, candidates: Issue[]) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 30)
+    throw new IssueInputError('참고 이슈는 최대 30개까지 선택할 수 있습니다.');
+  const ids = [...new Set(value.map((id) => text(id, '참고 이슈 ID', 200)))];
+  const available = new Set(
+    candidates
+      .filter((issue) => issue.status === 'closed')
+      .map((issue) => issue.id),
+  );
+  if (ids.some((id) => id === issueId || !available.has(id)))
+    throw new IssueInputError('참고 이슈를 확인해 주세요.');
+  return ids;
+}
+
+/** Literal term extraction only. This is not an LLM analysis or a rewritten issue. */
+function compileMemory(
+  issue: Issue,
+  at: string,
+  relatedIssueIds: string[],
+): IssueMemory {
+  const source = [
+    issue.title,
+    issue.body,
+    ...issue.activities.map((activity) => activity.body),
+    issue.resolution?.outcome ?? '',
+    ...issue.resources.flatMap((resource) => [resource.key, resource.label]),
+  ].join('\n');
+  const counts = new Map<string, number>();
+  for (const term of source
+    .normalize('NFKC')
+    .toLocaleLowerCase('ko-KR')
+    .match(/[\p{L}\p{N}][\p{L}\p{N}._:-]*/gu) ?? []) {
+    if (term.length < 2 || term.length > 120) continue;
+    counts.set(term, (counts.get(term) ?? 0) + 1);
+  }
+  return {
+    version: 1,
+    compiledAt: at,
+    method: 'extractive-v1',
+    sourceRevision: issue.revision,
+    terms: [...counts]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko-KR'))
+      .slice(0, 64)
+      .map(([term]) => term),
+    relatedIssueIds: [...relatedIssueIds],
+  };
+}
+
+/** Complete one canonical issue atomically; its temporary graph view becomes a memory. */
+export function resolveIssue(
+  issue: Issue,
+  raw: unknown,
+  actor: string,
+  now: string,
+  evidenceCandidates: Issue[] = [],
+): Issue {
+  const input = record(raw, '처리 내용');
+  assertEditable(issue, input);
+  const body = text(input.body, '처리 내용', 20000);
+  const outcome = text(input.outcome, '처리 결과', 240);
+  const { author, at } = auditIdentity(actor, now);
+  const relatedIssueIds = evidenceIds(
+    input.evidenceIssueIds,
+    issue.id,
+    evidenceCandidates,
+  );
+  const originalKeys = new Set(issue.resources.map((resource) => resource.key));
+  const additions = resources(input.resources).filter(
+    (resource) => !originalKeys.has(resource.key),
+  );
+  if (issue.resources.length + additions.length > 200)
+    throw new IssueInputError('이슈의 관련 자료는 총 200개 이하여야 합니다.');
+  const revision = issue.revision + 1;
+  const completed: Issue = {
     ...issue,
     status: 'closed',
     revision,
@@ -191,11 +292,23 @@ export function resolveIssue(
       input.attributes === undefined
         ? { ...issue.attributes }
         : { ...issue.attributes, ...attributes(input.attributes) },
-    resources: issue.resources.map((resource) => ({ ...resource })),
+    resources: [...issue.resources, ...additions].map((resource) => ({
+      ...resource,
+    })),
     activities: [
       ...issue.activities.map((activity) => ({ ...activity })),
       { id: `${issue.id}:resolution:${revision}`, at, author, body },
     ],
-    resolution: { at, author, body, outcome },
+    resolution: {
+      at,
+      author,
+      body,
+      outcome,
+      evidenceIssueIds: relatedIssueIds,
+    },
+  };
+  return {
+    ...completed,
+    memory: compileMemory(completed, at, relatedIssueIds),
   };
 }

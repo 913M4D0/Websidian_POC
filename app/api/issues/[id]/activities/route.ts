@@ -1,6 +1,6 @@
 import { authenticate, apiFailure, json, readJson } from '@/lib/api-security';
-import { findIssue, listIssues, saveResolution } from '@/lib/issue-store';
-import { resolveIssue } from '@/lib/issues';
+import { findIssue, saveIssueRevision } from '@/lib/issue-store';
+import { appendIssueActivity } from '@/lib/issues';
 
 export async function POST(
   request: Request,
@@ -10,15 +10,15 @@ export async function POST(
     const actor = authenticate(request, true);
     const { id } = await context.params;
     const current = await findIssue(actor, id);
-    const raw = await readJson(request);
-    const next = resolveIssue(
+    const next = appendIssueActivity(
       current,
-      raw,
+      await readJson(request),
       '처리 담당자',
       new Date().toISOString(),
-      await listIssues(actor),
     );
-    return json({ issue: await saveResolution(actor, next, current.revision) });
+    return json({
+      issue: await saveIssueRevision(actor, next, current.revision),
+    });
   } catch (error) {
     return apiFailure(error);
   }

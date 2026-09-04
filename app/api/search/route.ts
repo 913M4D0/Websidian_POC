@@ -6,7 +6,7 @@ import {
   readJson,
 } from '@/lib/api-security';
 import { listIssues } from '@/lib/issue-store';
-import { searchIssues } from '@/lib/issue-search';
+import { searchCompletedIssues } from '@/lib/issue-history';
 
 export async function POST(request: Request) {
   try {
@@ -25,9 +25,14 @@ export async function POST(request: Request) {
     if (raw.excludeId !== undefined && typeof raw.excludeId !== 'string')
       throw new ApiError(400, '기준 이슈 ID를 확인해 주세요.');
     const issues = await listIssues(actor);
+    if (
+      raw.excludeId !== undefined &&
+      !issues.some((issue) => issue.id === raw.excludeId)
+    )
+      throw new ApiError(400, '기준 이슈를 확인해 주세요.');
     return json({
       query: raw.query,
-      results: searchIssues(
+      results: searchCompletedIssues(
         raw.query,
         issues,
         raw.excludeId as string | undefined,

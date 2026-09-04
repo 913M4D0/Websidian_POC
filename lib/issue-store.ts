@@ -77,13 +77,13 @@ export async function insertIssue(actor: string, issue: Issue): Promise<Issue> {
   return findIssue(actor, issue.id);
 }
 
-export async function saveResolution(
+export async function saveIssueRevision(
   actor: string,
   issue: Issue,
   expectedRevision: number,
 ) {
   const db = await database();
-  // First resolution of a seed inserts its overlay; subsequent edits use CAS.
+  // A first seed edit inserts its overlay; subsequent edits use revision CAS.
   const result = await db
     .prepare(`INSERT INTO websidian_issues (owner_id, id, revision, payload) VALUES (?, ?, ?, ?)
     ON CONFLICT(owner_id, id) DO UPDATE SET revision = excluded.revision, payload = excluded.payload
@@ -103,3 +103,6 @@ export async function saveResolution(
     );
   return issue;
 }
+
+// Kept for existing callers; progress and completion share the same atomic CAS.
+export const saveResolution = saveIssueRevision;

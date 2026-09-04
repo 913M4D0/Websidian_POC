@@ -101,6 +101,7 @@ type GraphInstance = {
   ) => { x: number; y: number };
   scene: () => { add: (object: unknown) => void };
   refresh: () => GraphInstance;
+  pauseAnimation: () => GraphInstance;
   _destructor?: () => void;
 };
 
@@ -193,6 +194,91 @@ function measureGraphSafeRect(container: HTMLElement): GraphSafeRect {
   return safeRect;
 }
 
+/**
+ * Fit the actual nebula, not the origin. Solve the perspective bounds once for
+ * each camera-space node envelope, including living motion and node radius.
+ * This is event-driven; pointer movement and simulation frames never refit.
+ */
+function fitNebulaCamera(
+  THREE: typeof import('three'),
+  camera: import('three').PerspectiveCamera,
+  points: Iterable<GraphPosition>,
+  container: HTMLElement,
+  resetOrientation = false,
+) {
+  const width = Math.max(1, container.clientWidth);
+  const height = Math.max(1, container.clientHeight);
+  const safe = measureGraphSafeRect(container);
+  const padding = Math.min(
+    14,
+    (safe.right - safe.left) * 0.08,
+    (safe.bottom - safe.top) * 0.08,
+  );
+  const left = ((safe.left + padding) / width) * 2 - 1;
+  const right = ((safe.right - padding) / width) * 2 - 1;
+  const bottom = 1 - ((safe.bottom - padding) / height) * 2;
+  const top = 1 - ((safe.top + padding) / height) * 2;
+  const centerX = (left + right) / 2;
+  const centerY = (bottom + top) / 2;
+  const orientationCamera = camera.clone();
+  if (resetOrientation) {
+    orientationCamera.position.set(0, 24, 690);
+    orientationCamera.lookAt(0, -16, 0);
+  }
+  const orientation = orientationCamera.quaternion;
+  const inverse = orientation.clone().invert();
+  const localPoints = [...points]
+    .filter((point) => Number.isFinite(point.x + point.y + point.z))
+    .map((point) =>
+      new THREE.Vector3(point.x, point.y, point.z).applyQuaternion(inverse),
+    );
+  if (!localPoints.length) return null;
+  const center = new THREE.Box3()
+    .setFromPoints(localPoints)
+    .getCenter(new THREE.Vector3());
+  const tanY = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const tanX = tanY * (width / height);
+  let distance = 80;
+  const nodeEnvelope = 18;
+  for (const point of localPoints) {
+    const local = point.clone().sub(center);
+    for (const sx of [-1, 1]) {
+      for (const sy of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          const x = local.x + sx * nodeEnvelope;
+          const y = local.y + sy * nodeEnvelope;
+          const z = local.z + sz * nodeEnvelope;
+          distance = Math.max(
+            distance,
+            z + camera.near + 20,
+            (x / tanX + right * z) / Math.max(0.001, right - centerX),
+            (-x / tanX - left * z) / Math.max(0.001, centerX - left),
+            (y / tanY + top * z) / Math.max(0.001, top - centerY),
+            (-y / tanY - bottom * z) / Math.max(0.001, centerY - bottom),
+          );
+        }
+      }
+    }
+  }
+  const target = center
+    .clone()
+    .add(
+      new THREE.Vector3(
+        -centerX * distance * tanX,
+        -centerY * distance * tanY,
+        0,
+      ),
+    )
+    .applyQuaternion(orientation);
+  const position = target
+    .clone()
+    .add(new THREE.Vector3(0, 0, distance).applyQuaternion(orientation));
+  return {
+    position: { x: position.x, y: position.y, z: position.z },
+    target: { x: target.x, y: target.y, z: target.z },
+  };
+}
+
 /* oxlint-disable react/react-compiler -- The imperative WebGL lifecycle is intentionally isolated from React compilation. */
 export function GraphStage({
   nodes,
@@ -225,9 +311,11 @@ export function GraphStage({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<GraphInstance | null>(null);
+  const graphInitializedRef = useRef(false);
   const [graphMounted, setGraphMounted] = useState(false);
   const [viewportVersion, setViewportVersion] = useState(0);
   const [layoutSettledVersion, setLayoutSettledVersion] = useState(0);
+  const overviewResetRef = useRef(viewResetVersion);
   const runtimeNodesRef = useRef<MemoryNode[]>([]);
   const nebulaPositionsRef = useRef<Map<string, GraphPosition>>(new Map());
   const gravityLayoutRef = useRef<GravityLayout | null>(null);
@@ -294,6 +382,10 @@ export function GraphStage({
 
   useEffect(() => {
     let cancelled = false;
+    let mountedGraph: GraphInstance | null = null;
+    let readyReported = false;
+    graphInitializedRef.current = false;
+    setGraphMounted(false);
     let resizeObserver: ResizeObserver | null = null;
     let motionQuery: MediaQueryList | null = null;
     let disposePointerInteraction: (() => void) | null = null;
@@ -315,6 +407,7 @@ export function GraphStage({
       const graph = graphRef.current;
       if (
         !graph ||
+        !graphInitializedRef.current ||
         stateRef.current.gravityRootId ||
         gravityLayoutRef.current ||
         animationFrameRef.current !== null
@@ -448,7 +541,15 @@ export function GraphStage({
           controlType: 'orbit',
           rendererConfig: { antialias: true, alpha: true },
         }) as unknown as GraphInstance;
+        mountedGraph = graph;
         graphRef.current = graph;
+        const reportInitialized = () => {
+          if (cancelled || readyReported || graphRef.current !== graph) return;
+          readyReported = true;
+          graphInitializedRef.current = true;
+          setGraphMounted(true);
+          onReadyRef.current();
+        };
         const selectNodeOnce = (node: MemoryNode) => {
           const now = performance.now();
           const lastClick = lastGraphClickRef.current;
@@ -596,7 +697,7 @@ export function GraphStage({
           .nodeId('id')
           .nodeLabel(
             (node) =>
-              `<div class="graph-tooltip"><span>${'ISSUE'}</span><strong>${escapeGraphLabel(node.issueKey)}</strong><p>${escapeGraphLabel(node.name)}</p></div>`,
+              `<div class="graph-tooltip"><span>${node.phase === 'active' ? '진행 중 · 탐색 기준 이슈' : '처리 완료 · 이슈 기억'}</span><strong>${escapeGraphLabel(node.issueKey)}</strong><p>${escapeGraphLabel(node.name)}</p></div>`,
           )
           .nodeColor((node) => {
             const state = stateRef.current;
@@ -661,6 +762,7 @@ export function GraphStage({
             );
             if (node.id === hover || node.id === state.selectedId) return 10;
             if (node.id === state.gravityRootId) return 9.5;
+            if (node.phase === 'active') return 8.5;
             if (selectedNeighbor || hoverNeighbor)
               return 5.8 + node.importance * 2;
             if (depth === 1) return 5.5 + node.importance * 2;
@@ -679,11 +781,13 @@ export function GraphStage({
             const isHovered = node.id === hover;
             const isSelected = node.id === state.selectedId;
             const isRoot = node.id === state.gravityRootId;
+            const isActive = node.phase === 'active';
             const showNeighborLabel = getNeighborLabelIds().has(node.id);
             const group = new THREE.Group();
             nodeObjects.set(node.id, group);
             if (
               !(
+                isActive ||
                 isSelected ||
                 isRoot ||
                 isHovered ||
@@ -692,34 +796,39 @@ export function GraphStage({
               )
             )
               return group;
-            const sprite = new SpriteText(node.issueKey);
-            sprite.color = isHovered
-              ? '#dcdcaa'
-              : isSelected
-                ? '#f3f3f3'
-                : isRoot
+            const sprite = new SpriteText(
+              isActive ? `진행 중 · ${node.issueKey}` : node.issueKey,
+            );
+            sprite.color = isActive
+              ? '#e8d5af'
+              : isHovered
+                ? '#dcdcaa'
+                : isSelected
                   ? '#f3f3f3'
-                  : node.color;
+                  : isRoot
+                    ? '#f3f3f3'
+                    : node.color;
             sprite.textHeight = depth === 1 || showNeighborLabel ? 2.7 : 3.2;
             sprite.fontWeight = '600';
             sprite.backgroundColor =
-              isSelected || isRoot || isHovered ? 'rgba(37,37,38,.94)' : false;
-            sprite.padding = isSelected || isRoot || isHovered ? [3, 5] : 0;
+              isActive || isSelected || isRoot || isHovered
+                ? 'rgba(37,37,38,.94)'
+                : false;
+            sprite.padding =
+              isActive || isSelected || isRoot || isHovered ? [3, 5] : 0;
             sprite.borderRadius = 1;
-            sprite.position.y = 8;
+            sprite.position.y = isActive ? 13 : 8;
             group.add(sprite);
 
-            if (isSelected || isRoot || isHovered) {
-              const ringColor = isHovered
-                ? '#dcdcaa'
-                : isSelected
-                  ? node.color
-                  : isRoot
-                    ? node.color
-                    : '#c586c0';
+            if (isActive || isSelected || isRoot || isHovered) {
+              const ringColor = isActive
+                ? '#d7ba7d'
+                : isHovered
+                  ? '#dcdcaa'
+                  : node.color;
               const innerOpacity = isHovered
                 ? 0.9
-                : isSelected
+                : isActive || isSelected
                   ? 0.82
                   : isRoot
                     ? 0.46
@@ -732,7 +841,12 @@ export function GraphStage({
                     ? 0.14
                     : 0.11;
               const ring = new THREE.Mesh(
-                new THREE.TorusGeometry(8.5, isSelected ? 0.15 : 0.12, 8, 64),
+                new THREE.TorusGeometry(
+                  isActive ? 10.5 : 8.5,
+                  isActive ? 0.21 : isSelected ? 0.15 : 0.12,
+                  8,
+                  64,
+                ),
                 new THREE.MeshBasicMaterial({
                   color: ringColor,
                   transparent: true,
@@ -740,7 +854,12 @@ export function GraphStage({
                 }),
               );
               const orbit = new THREE.Mesh(
-                new THREE.TorusGeometry(9.8, isSelected ? 0.07 : 0.055, 7, 64),
+                new THREE.TorusGeometry(
+                  isActive ? 12 : 9.8,
+                  isSelected ? 0.07 : 0.055,
+                  7,
+                  64,
+                ),
                 new THREE.MeshBasicMaterial({
                   color: ringColor,
                   transparent: true,
@@ -884,7 +1003,10 @@ export function GraphStage({
           .enableNodeDrag(finePointer.matches)
           .warmupTicks(0)
           .cooldownTicks(0)
-          .onEngineStop(() => onReadyRef.current());
+          // Kapsule applies graphData in a debounced update. Only this first
+          // completed engine cycle proves state.layout exists; an immediate
+          // React effect could reheat it early and crash with undefined.tick.
+          .onEngineStop(reportInitialized);
 
         const linkForce = graph.d3Force('link') as GraphLinkForce | undefined;
         if (finePointer.matches) {
@@ -911,6 +1033,15 @@ export function GraphStage({
           { x: 0, y: -16, z: 0 },
           0,
         );
+        const initialFrame = fitNebulaCamera(
+          THREE,
+          graph.camera(),
+          nebulaPositions.values(),
+          element,
+          true,
+        );
+        if (initialFrame)
+          graph.cameraPosition(initialFrame.position, initialFrame.target, 0);
 
         const nebulaMaterials: Array<{ opacity: number }> = [];
         for (const cluster of getClusters(nodesRef.current)) {
@@ -1137,9 +1268,6 @@ export function GraphStage({
           canvas.removeEventListener('pointercancel', deactivatePointer);
         };
 
-        setGraphMounted(true);
-        window.requestAnimationFrame(() => onReadyRef.current());
-
         let observedWidth = element.clientWidth;
         let observedHeight = element.clientHeight;
         resizeObserver = new ResizeObserver(([entry]) => {
@@ -1157,6 +1285,8 @@ export function GraphStage({
         });
         resizeObserver.observe(element);
       } catch (error) {
+        if (cancelled) return;
+        mountedGraph?.pauseAnimation();
         console.error('Unable to initialize the memory universe', error);
         onErrorRef.current();
       }
@@ -1165,6 +1295,7 @@ export function GraphStage({
     void mountGraph();
     return () => {
       cancelled = true;
+      graphInitializedRef.current = false;
       resizeObserver?.disconnect();
       motionQuery?.removeEventListener('change', updateMotionPreference);
       disposePointerInteraction?.();
@@ -1179,8 +1310,14 @@ export function GraphStage({
       if (selectionFocusFrameRef.current !== null)
         window.cancelAnimationFrame(selectionFocusFrameRef.current);
       nodeObjects.clear();
-      graphRef.current?._destructor?.();
-      graphRef.current = null;
+      if (mountedGraph) {
+        mountedGraph
+          .pauseAnimation()
+          .onEngineStop(() => {})
+          .enableNodeDrag(false);
+        mountedGraph._destructor?.();
+      }
+      if (graphRef.current === mountedGraph) graphRef.current = null;
     };
   }, []);
 
@@ -1206,7 +1343,14 @@ export function GraphStage({
     const graph = graphRef.current;
     const THREE = threeRef.current;
     const runtimeNodes = runtimeNodesRef.current;
-    if (!graphMounted || !graph || !THREE || !runtimeNodes.length) return;
+    if (
+      !graphMounted ||
+      !graphInitializedRef.current ||
+      !graph ||
+      !THREE ||
+      !runtimeNodes.length
+    )
+      return;
 
     if (animationFrameRef.current !== null)
       window.cancelAnimationFrame(animationFrameRef.current);
@@ -1247,6 +1391,8 @@ export function GraphStage({
     let clearGravityCamera = false;
     let targets = nebulaPositionsRef.current;
     let nextGravity: GravityLayout | null = null;
+    const resetOverview = overviewResetRef.current !== viewResetVersion;
+    overviewResetRef.current = viewResetVersion;
 
     if (gravityRootId) {
       const root = runtimeNodes.find((node) => node.id === gravityRootId);
@@ -1421,9 +1567,31 @@ export function GraphStage({
       }
     } else {
       onGravityChangeRef.current(null);
+      const overviewCamera = camera.clone();
       if (gravityCameraRef.current) {
-        cameraTarget = gravityCameraRef.current;
+        const previous = gravityCameraRef.current;
+        overviewCamera.position.set(
+          previous.position.x,
+          previous.position.y,
+          previous.position.z,
+        );
+        overviewCamera.lookAt(
+          previous.target.x,
+          previous.target.y,
+          previous.target.z,
+        );
         clearGravityCamera = true;
+      }
+      const container = containerRef.current;
+      if (container) {
+        const fitted = fitNebulaCamera(
+          THREE,
+          overviewCamera,
+          targets.values(),
+          container,
+          resetOverview,
+        );
+        if (fitted) cameraTarget = fitted;
       }
     }
 
@@ -1562,7 +1730,7 @@ export function GraphStage({
         window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     };
-  }, [graphMounted, gravityRootId, nodes, viewportVersion]);
+  }, [graphMounted, gravityRootId, nodes, viewportVersion, viewResetVersion]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -1712,17 +1880,6 @@ export function GraphStage({
     viewportVersion,
     layoutSettledVersion,
   ]);
-
-  useEffect(() => {
-    const graph = graphRef.current;
-    if (!graph || viewResetVersion === 0 || gravityCameraRef.current) return;
-    graph.controls().autoRotate = false;
-    graph.cameraPosition(
-      { x: 0, y: 24, z: 690 },
-      { x: 0, y: -16, z: 0 },
-      reducedMotionRef.current ? 80 : 650,
-    );
-  }, [viewResetVersion]);
 
   return (
     <div
