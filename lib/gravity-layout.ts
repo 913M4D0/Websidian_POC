@@ -1,5 +1,5 @@
 import {
-  clusters,
+  getClusters,
   linkEndpointId,
   type MemoryLink,
   type MemoryNode,
@@ -49,7 +49,14 @@ function noise(input: string, salt: string) {
 }
 
 function centeredNoise(input: string, salt: string) {
-  return (noise(input, `${salt}:a`) + noise(input, `${salt}:b`) + noise(input, `${salt}:c`)) / 3 * 2 - 1;
+  return (
+    ((noise(input, `${salt}:a`) +
+      noise(input, `${salt}:b`) +
+      noise(input, `${salt}:c`)) /
+      3) *
+      2 -
+    1
+  );
 }
 
 function scale(vector: GraphPosition, amount: number): GraphPosition {
@@ -58,7 +65,11 @@ function scale(vector: GraphPosition, amount: number): GraphPosition {
 
 function add(...vectors: GraphPosition[]): GraphPosition {
   return vectors.reduce(
-    (result, vector) => ({ x: result.x + vector.x, y: result.y + vector.y, z: result.z + vector.z }),
+    (result, vector) => ({
+      x: result.x + vector.x,
+      y: result.y + vector.y,
+      z: result.z + vector.z,
+    }),
     { x: 0, y: 0, z: 0 },
   );
 }
@@ -69,23 +80,19 @@ function normalize(vector: GraphPosition): GraphPosition {
 }
 
 function monthIndex(occurredAt: string) {
-  return (Number(occurredAt.slice(0, 4)) - 2025) * 12 + Number(occurredAt.slice(5, 7)) - 1;
+  return (
+    (Number(occurredAt.slice(0, 4)) - 2025) * 12 +
+    Number(occurredAt.slice(5, 7)) -
+    1
+  );
 }
 
-function sourceOverlap(a: MemoryNode, b: MemoryNode) {
-  const left = new Set(a.changedSources);
-  const matches = b.changedSources.filter((source) => left.has(source)).length;
-  if (matches) return matches / Math.max(a.changedSources.length, b.changedSources.length, 1);
-  if (a.primaryFile === b.primaryFile) return 0.82;
-  if (a.module === b.module) return 0.58;
-  if (a.service === b.service) return 0.28;
-  return 0;
-}
-
-function connectionPriority(parent: MemoryNode, child: MemoryNode, link: MemoryLink) {
-  const monthDistance = Math.abs(monthIndex(parent.occurredAt) - monthIndex(child.occurredAt));
-  const temporalCausality = Math.max(0, 1 - monthDistance / 20);
-  return link.score * 0.45 + sourceOverlap(parent, child) * 0.3 + temporalCausality * 0.15 + child.relevance * 0.1;
+function connectionPriority(
+  _parent: MemoryNode,
+  _child: MemoryNode,
+  link: MemoryLink,
+) {
+  return link.score;
 }
 
 export function memoryLinkKey(link: MemoryLink) {
@@ -95,30 +102,69 @@ export function memoryLinkKey(link: MemoryLink) {
   return `${source}::${target}::${link.relation}`;
 }
 
-export const nebulaCenters = new Map(
-  clusters.map((cluster) => {
-    const angle = -Math.PI / 2 + (cluster.lane / clusters.length) * Math.PI * 2;
-    return [cluster.id, {
-      x: Math.cos(angle) * 184,
-      y: Math.sin(angle) * 108,
-      z: Math.sin(angle * 2.15) * 72,
-    }] as const;
-  }),
-);
-
-export function createNebulaLayout(nodes: MemoryNode[]) {
+/** Stable force-relaxed nebula: links shape distance; labels never gate proximity. */
+export function createNebulaLayout(
+  nodes: MemoryNode[],
+  links: MemoryLink[] = [],
+) {
+  const ordered = [...nodes].sort((a, b) => a.id.localeCompare(b.id));
   const positions = new Map<string, GraphPosition>();
-  for (const node of nodes) {
-    const center = nebulaCenters.get(node.cluster) ?? { x: 0, y: 0, z: 0 };
-    const cluster = clusters.find((item) => item.id === node.cluster);
-    const moduleIndex = Math.max(0, cluster?.modules.indexOf(node.module) ?? 0);
-    const timeline = (monthIndex(node.occurredAt) - 10) / 10;
-    const density = node.isHub ? 0.08 : node.kind === 'query' ? 0.5 : 1;
+  const dates = ordered.map((n) => monthIndex(n.occurredAt));
+  const centerDate = dates.length
+    ? (Math.min(...dates) + Math.max(...dates)) / 2
+    : 0;
+  for (const node of ordered)
     positions.set(node.id, {
-      x: center.x + (centeredNoise(node.id, 'nebula-x') * 74 + timeline * 24) * density,
-      y: center.y + (centeredNoise(node.id, 'nebula-y') * 48 + (moduleIndex - 1) * 12) * density,
-      z: center.z + centeredNoise(node.id, 'nebula-z') * 68 * density,
+      x:
+        centeredNoise(node.id, 'nebula-x') * 400 +
+        (monthIndex(node.occurredAt) - centerDate) * 2,
+      y: centeredNoise(node.id, 'nebula-y') * 280,
+      z: centeredNoise(node.id, 'nebula-z') * 280,
     });
+  const pairs = links
+    .map((link) => ({
+      a: positions.get(linkEndpointId(link.source))!,
+      b: positions.get(linkEndpointId(link.target))!,
+      score: link.score,
+    }))
+    .filter((p) => p.a && p.b);
+  for (let step = 0; step < 110; step += 1) {
+    const cooling = 0.8 * (1 - step / 140);
+    const values = [...positions.values()];
+    for (let a = 0; a < values.length; a += 1)
+      for (let b = a + 1; b < values.length; b += 1) {
+        const p = values[a],
+          q = values[b],
+          dx = p.x - q.x,
+          dy = p.y - q.y,
+          dz = p.z - q.z;
+        const distance = Math.max(8, Math.hypot(dx, dy, dz));
+        const force = Math.min(1.8, 180 / (distance * distance)) * cooling;
+        p.x += (dx / distance) * force;
+        p.y += (dy / distance) * force;
+        p.z += (dz / distance) * force;
+        q.x -= (dx / distance) * force;
+        q.y -= (dy / distance) * force;
+        q.z -= (dz / distance) * force;
+      }
+    for (const { a, b, score } of pairs) {
+      const dx = b.x - a.x,
+        dy = b.y - a.y,
+        dz = b.z - a.z,
+        distance = Math.max(1, Math.hypot(dx, dy, dz));
+      const force = (distance - (40 + 55 * (1 - score))) * 0.022 * cooling;
+      a.x += (dx / distance) * force;
+      a.y += (dy / distance) * force;
+      a.z += (dz / distance) * force;
+      b.x -= (dx / distance) * force;
+      b.y -= (dy / distance) * force;
+      b.z -= (dz / distance) * force;
+    }
+    for (const p of values) {
+      p.x *= 0.999;
+      p.y *= 0.999;
+      p.z *= 0.999;
+    }
   }
   return positions;
 }
@@ -133,7 +179,11 @@ function buildAdjacency(nodes: MemoryNode[], links: MemoryLink[]) {
     const child = byId.get(to);
     if (!parent || !child) return;
     const list = adjacency.get(from) ?? [];
-    list.push({ nodeId: to, link, priority: connectionPriority(parent, child, link) });
+    list.push({
+      nodeId: to,
+      link,
+      priority: connectionPriority(parent, child, link),
+    });
     adjacency.set(from, list);
   };
   for (const link of links) {
@@ -143,7 +193,11 @@ function buildAdjacency(nodes: MemoryNode[], links: MemoryLink[]) {
     append(target, source, link);
   }
   for (const list of adjacency.values()) {
-    list.sort((left, right) => right.priority - left.priority || left.nodeId.localeCompare(right.nodeId));
+    list.sort(
+      (left, right) =>
+        right.priority - left.priority ||
+        left.nodeId.localeCompare(right.nodeId),
+    );
   }
   return adjacency;
 }
@@ -177,6 +231,8 @@ export function createGravityLayout({
   anchor: GraphPosition;
   basis?: GraphBasis;
 }): GravityLayout {
+  const clusters = getClusters(nodes);
+  const laneCenter = (clusters.length - 1) / 2;
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const adjacency = buildAdjacency(nodes, links);
   const shortestDepth = createDepthMap(rootId, adjacency);
@@ -192,11 +248,22 @@ export function createGravityLayout({
       .map((node) => {
         const possibleParents = (adjacency.get(node.id) ?? [])
           .filter((entry) => depthById.get(entry.nodeId) === depth - 1)
-          .sort((left, right) => right.priority - left.priority || left.nodeId.localeCompare(right.nodeId));
+          .sort(
+            (left, right) =>
+              right.priority - left.priority ||
+              left.nodeId.localeCompare(right.nodeId),
+          );
         return { node, parent: possibleParents[0] };
       })
-      .filter((candidate): candidate is { node: MemoryNode; parent: Adjacent } => Boolean(candidate.parent))
-      .sort((left, right) => right.parent.priority - left.parent.priority || left.node.id.localeCompare(right.node.id))
+      .filter(
+        (candidate): candidate is { node: MemoryNode; parent: Adjacent } =>
+          Boolean(candidate.parent),
+      )
+      .sort(
+        (left, right) =>
+          right.parent.priority - left.parent.priority ||
+          left.node.id.localeCompare(right.node.id),
+      )
       .slice(0, LEVEL_LIMITS[depth]);
 
     for (const candidate of candidates) {
@@ -220,9 +287,12 @@ export function createGravityLayout({
   }
   for (const children of childrenByParent.values()) {
     children.sort((left, rightId) => {
-      const scoreDifference = (parentPriority.get(rightId) ?? 0) - (parentPriority.get(left) ?? 0);
+      const scoreDifference =
+        (parentPriority.get(rightId) ?? 0) - (parentPriority.get(left) ?? 0);
       if (scoreDifference) return scoreDifference;
-      return (byId.get(left)?.occurredAt ?? '').localeCompare(byId.get(rightId)?.occurredAt ?? '');
+      return (byId.get(left)?.occurredAt ?? '').localeCompare(
+        byId.get(rightId)?.occurredAt ?? '',
+      );
     });
   }
 
@@ -241,7 +311,8 @@ export function createGravityLayout({
       siblingIndexById.set(childId, { index, count: children.length });
       return assignLeafSpan(childId);
     });
-    const center = (childPositions[0] + childPositions[childPositions.length - 1]) / 2;
+    const center =
+      (childPositions[0] + childPositions[childPositions.length - 1]) / 2;
     rawHorizontal.set(nodeId, center);
     return center;
   };
@@ -259,17 +330,30 @@ export function createGravityLayout({
     if (nodeId === rootId) continue;
     const node = byId.get(nodeId);
     const depth = depthById.get(nodeId) ?? 0;
-    const clusterLane = clusters.find((cluster) => cluster.id === node?.cluster)?.lane ?? 3.5;
+    const clusterLane =
+      clusters.find((cluster) => cluster.id === node?.cluster)?.lane ??
+      laneCenter;
     const sibling = siblingIndexById.get(nodeId) ?? { index: 0, count: 1 };
-    const siblingFan = sibling.count > 8 ? (sibling.index % 3 - 1) * 11 : (sibling.index - (sibling.count - 1) / 2) * Math.min(3, 18 / sibling.count);
-    const depthOffset = (clusterLane - 3.5) * 6 + siblingFan + centeredNoise(nodeId, 'tree-depth') * 6;
-    const horizontalOffset = ((rawHorizontal.get(nodeId) ?? rawCenter) - rawCenter) * horizontalScale;
-    positions.set(nodeId, add(
-      anchor,
-      scale(right, horizontalOffset),
-      scale(up, -depth * HOP_GAP),
-      scale(forward, depthOffset),
-    ));
+    const siblingFan =
+      sibling.count > 8
+        ? ((sibling.index % 3) - 1) * 11
+        : (sibling.index - (sibling.count - 1) / 2) *
+          Math.min(3, 18 / sibling.count);
+    const depthOffset =
+      (clusterLane - laneCenter) * 6 +
+      siblingFan +
+      centeredNoise(nodeId, 'tree-depth') * 6;
+    const horizontalOffset =
+      ((rawHorizontal.get(nodeId) ?? rawCenter) - rawCenter) * horizontalScale;
+    positions.set(
+      nodeId,
+      add(
+        anchor,
+        scale(right, horizontalOffset),
+        scale(up, -depth * HOP_GAP),
+        scale(forward, depthOffset),
+      ),
+    );
   }
 
   const floorDistance = 355;
@@ -277,16 +361,35 @@ export function createGravityLayout({
   for (const cluster of clusters) {
     const clusterNodes = floorNodes
       .filter((node) => node.cluster === cluster.id)
-      .sort((left, rightNode) => left.occurredAt.localeCompare(rightNode.occurredAt) || left.id.localeCompare(rightNode.id));
+      .sort(
+        (left, rightNode) =>
+          left.occurredAt.localeCompare(rightNode.occurredAt) ||
+          left.id.localeCompare(rightNode.id),
+      );
     const columns = 3;
     const rowCount = Math.ceil(clusterNodes.length / columns);
     clusterNodes.forEach((node, index) => {
       const column = index % columns;
       const row = Math.floor(index / columns);
-      const across = (cluster.lane - 3.5) * 82 + (column - 1) * 21 + centeredNoise(node.id, 'floor-x') * 0.8;
-      const floorDepth = (row - (rowCount - 1) / 2) * 21 + 88 + centeredNoise(node.id, 'floor-z') * 0.8;
+      const across =
+        (cluster.lane - laneCenter) *
+          Math.min(82, 620 / Math.max(1, clusters.length)) +
+        (column - 1) * 21 +
+        centeredNoise(node.id, 'floor-x') * 0.8;
+      const floorDepth =
+        (row - (rowCount - 1) / 2) * 21 +
+        88 +
+        centeredNoise(node.id, 'floor-z') * 0.8;
       const surface = floorDistance - noise(node.id, 'floor-y') * 2;
-      positions.set(node.id, add(anchor, scale(right, across), scale(up, -surface), scale(forward, floorDepth)));
+      positions.set(
+        node.id,
+        add(
+          anchor,
+          scale(right, across),
+          scale(up, -surface),
+          scale(forward, floorDepth),
+        ),
+      );
     });
   }
 
