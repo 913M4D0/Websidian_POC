@@ -8,12 +8,30 @@ import {
 import { listIssues, insertIssue } from '@/lib/issue-store';
 import { parseCreateIssue, type Issue } from '@/lib/issues';
 import { llmPolicy } from '@/lib/llm-policy';
+import { embeddingPolicy, getEmbeddingStatus } from '@/lib/embedding-server';
+import { memoryIndexSnapshot } from '@/lib/memory-store';
 
 export async function GET(request: Request) {
   try {
+    const actor = authenticate(request);
+    const issues = await listIssues(actor);
+    const memory = await memoryIndexSnapshot(
+      actor,
+      issues,
+      embeddingPolicy.modelId,
+    );
     return json({
-      issues: await listIssues(authenticate(request)),
+      issues,
       llm: llmPolicy,
+      artifacts: memory.publicArtifacts,
+      memoryIndex: {
+        total: memory.total,
+        indexed: memory.indexed,
+        compiled: memory.compiled,
+        remaining: memory.remaining,
+        stale: memory.stale,
+        embedding: getEmbeddingStatus(),
+      },
       storage: 'D1 · 개인 POC 작업공간',
     });
   } catch (error) {

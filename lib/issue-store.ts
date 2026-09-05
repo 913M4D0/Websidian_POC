@@ -77,6 +77,28 @@ export async function insertIssue(actor: string, issue: Issue): Promise<Issue> {
   return findIssue(actor, issue.id);
 }
 
+/**
+ * One-way provider snapshots are import-once. A repeated import or an ID
+ * collision never overwrites local treatment, resolution, or user-authored data.
+ */
+export async function insertExternalIssue(actor: string, issue: Issue) {
+  if (!issue.source?.managed)
+    throw new ApiError(400, '외부 원본 표시가 없는 이슈는 가져올 수 없습니다.');
+  if (seedIssues.some((seed) => seed.id === issue.id))
+    return { issue: await findIssue(actor, issue.id), created: false };
+  const db = await database();
+  const result = await db
+    .prepare(
+      'INSERT OR IGNORE INTO websidian_issues (owner_id, id, revision, payload) VALUES (?, ?, ?, ?)',
+    )
+    .bind(actor, issue.id, issue.revision, JSON.stringify(issue))
+    .run();
+  return {
+    issue: await findIssue(actor, issue.id),
+    created: Boolean(result.meta.changes),
+  };
+}
+
 export async function saveIssueRevision(
   actor: string,
   issue: Issue,

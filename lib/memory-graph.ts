@@ -34,6 +34,7 @@ export type MemoryLink = {
   score: number;
   textScore: number;
   resourceScore: number;
+  semanticScore?: number;
   timeDistanceDays: number;
 };
 export type MemoryCluster = {
@@ -178,6 +179,10 @@ export function createMemoryGraph(
   issues: Issue[],
   neighbors = 4,
   activeIssueId?: string | null,
+  semanticArtifacts: {
+    issueId: string;
+    semanticNeighbors: { issueId: string; score: number }[];
+  }[] = [],
 ) {
   const { nodes, candidates, evidenceLinks, activeCandidates } =
     graphCandidates(issues);
@@ -192,6 +197,43 @@ export function createMemoryGraph(
   );
   for (const list of candidates.values()) {
     for (const edge of list.slice(0, limit)) visible.set(edge.id, edge);
+  }
+  const completedById = new Map(
+    issues
+      .filter((issue) => issue.status === 'closed')
+      .map((issue) => [issue.id, issue]),
+  );
+  for (const artifact of semanticArtifacts) {
+    const sourceIssue = completedById.get(artifact.issueId);
+    if (!sourceIssue) continue;
+    for (const neighbor of artifact.semanticNeighbors.slice(0, limit)) {
+      const targetIssue = completedById.get(neighbor.issueId);
+      if (!targetIssue || targetIssue.id === sourceIssue.id) continue;
+      const pair = compareIssues(sourceIssue, targetIssue);
+      const [source, target] = [
+        issueNodeId(sourceIssue),
+        issueNodeId(targetIssue),
+      ].sort();
+      const id = `${source}::${target}`;
+      const existing = visible.get(id);
+      visible.set(id, {
+        id,
+        source,
+        target,
+        relation:
+          existing?.relation === '처리 시 참고한 기록'
+            ? existing.relation
+            : '의미상 가까운 기록',
+        textScore: pair.textScore,
+        resourceScore: pair.resourceScore,
+        semanticScore: neighbor.score,
+        score:
+          0.55 * neighbor.score +
+          0.3 * pair.textScore +
+          0.15 * pair.resourceScore,
+        timeDistanceDays: pair.timeDistanceDays ?? 0,
+      });
+    }
   }
   const active = issues.find(
     (issue) => issue.id === activeIssueId && issue.status === 'open',

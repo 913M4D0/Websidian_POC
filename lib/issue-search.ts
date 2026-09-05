@@ -13,6 +13,8 @@ export type IssueComparison = {
 export type IssueSearchResult = IssueComparison & {
   issueId: string;
   evidence: string[];
+  /** Present only when the server has a same-model semantic index. */
+  semanticScore?: number;
 };
 
 type Bag = Map<string, number>;
@@ -28,6 +30,7 @@ export function issueText(issue: Issue): string {
     ...issue.activities.map((activity) => activity.body),
     issue.resolution?.body ?? '',
     issue.resolution?.outcome ?? '',
+    ...(issue.memory?.terms ?? []),
     ...issue.resources.flatMap((resource) => [resource.key, resource.label]),
   ].join('\n');
 }
@@ -71,6 +74,7 @@ function issueBag(issue: Issue): Bag {
     add(bag, issue.resolution.body, 0.8);
   }
   add(bag, issue.resolution?.outcome ?? '', 0.5);
+  add(bag, issue.memory?.terms.join(' ') ?? '', 0.35);
   add(bag, issue.tags.join(' '), 0.1);
   add(bag, issue.issueType, 0.1);
   for (const resource of issue.resources)

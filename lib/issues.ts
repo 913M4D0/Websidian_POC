@@ -21,6 +21,19 @@ export type IssueMemory = {
   terms: string[];
   relatedIssueIds: string[];
 };
+export type IssueSource = {
+  platform: string;
+  /** Provider database identity, not a mutable display number. */
+  externalId: string;
+  url: string;
+  repository?: string;
+  number?: number;
+  nodeId?: string;
+  updatedAt?: string;
+  syncedAt?: string;
+  stateReason?: string | null;
+  managed?: boolean;
+};
 export type IssueAttributes = Record<string, string | number>;
 export type Issue = {
   id: string;
@@ -37,7 +50,7 @@ export type Issue = {
   attributes: IssueAttributes;
   synthetic: boolean;
   revision: number;
-  source?: { platform: string; externalId: string; url: string };
+  source?: IssueSource;
   memory?: IssueMemory;
 };
 export type CreateIssueInput = Pick<

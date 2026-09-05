@@ -18,6 +18,7 @@ import {
   LoaderCircle,
   Maximize2,
   Network,
+  Plug,
   Plus,
   RotateCcw,
   Search,
@@ -46,6 +47,27 @@ import { issueText, type IssueSearchResult } from '@/lib/issue-search';
 import { llmPolicy } from '@/lib/llm-policy';
 import type { IssueHistory } from '@/lib/issue-history';
 import type { BriefResponse, LlmStatus } from '@/lib/brief-contract';
+import type { MemoryArtifactClient } from '@/lib/memory-artifact';
+
+type MemoryIndexInfo = {
+  total: number;
+  indexed: number;
+  compiled: number;
+  remaining: number;
+  stale: number;
+  embedding: {
+    ready: boolean;
+    modelId: string;
+    requestedModel: string;
+    requires: string[];
+    reason: string;
+  };
+};
+type IssuesPayload = {
+  issues: Issue[];
+  artifacts: MemoryArtifactClient[];
+  memoryIndex: MemoryIndexInfo;
+};
 
 async function api<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(
@@ -352,8 +374,181 @@ function IssueForm({
   );
 }
 
+function IntegrationDialog({
+  index,
+  onArtifacts,
+  onImported,
+  onClose,
+}: {
+  index: MemoryIndexInfo | null;
+  onArtifacts: (
+    artifacts: MemoryArtifactClient[],
+    index: Partial<MemoryIndexInfo>,
+  ) => void;
+  onImported: (message: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [repository, setRepository] = useState('913M4D0/Websidian_POC');
+  const [busy, setBusy] = useState<'github' | 'index' | null>(null);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  async function importGitHub() {
+    if (!repository.trim() || busy) return;
+    setBusy('github');
+    setError('');
+    setMessage('');
+    try {
+      const result = await api<{
+        repository: string;
+        found: number;
+        imported: number;
+        linked: number;
+        unchanged: number;
+        skipped: number;
+        authenticated: boolean;
+        mode: string;
+      }>('/api/integrations/github/import', { repository });
+      const summary = `${result.repository} · 확인 ${result.found}건 · 신규 ${result.imported}건 · 기존 연결 ${result.linked}건 · 보존 ${result.unchanged}건${result.skipped ? ` · 제외 ${result.skipped}건` : ''}`;
+      setMessage(summary);
+      await onImported(summary);
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function buildIndex() {
+    if (busy) return;
+    setBusy('index');
+    setError('');
+    setMessage('');
+    try {
+      const result = await api<{
+        total: number;
+        indexed: number;
+        compiled: number;
+        remaining: number;
+        stale: number;
+        processed: number;
+        modelId: string;
+        artifacts: MemoryArtifactClient[];
+      }>('/api/memory/index', { limit: 32 });
+      onArtifacts(result.artifacts, result);
+      setMessage(
+        result.processed
+          ? `${result.processed}건을 의미 색인했습니다. 남은 기억 ${result.remaining}건입니다.`
+          : '모든 완료 기억의 의미 색인이 최신 상태입니다.',
+      );
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !busy) onClose();
+      }}
+    >
+      <DialogContent
+        className="integration-dialog sm:max-w-[620px]"
+        showCloseButton={!busy}
+      >
+        <DialogHeader>
+          <DialogTitle>외부 기억 연결 · AI 색인</DialogTitle>
+          <DialogDescription>
+            Websidian은 독립형 이슈 처리 사이트입니다. GitHub는 연결 가능한 형상
+            기억 도구의 한 예이며, 가져오기는 원본을 덮어쓰지 않는 단방향
+            스냅샷입니다.
+          </DialogDescription>
+        </DialogHeader>
+        <section className="integration-section">
+          <div>
+            <strong>GitHub 이슈 가져오기</strong>
+            <span>공개 저장소는 토큰 없이도 최대 300건을 가져옵니다.</span>
+          </div>
+          <label htmlFor="github-repository">저장소 또는 이슈 URL</label>
+          <div className="integration-action">
+            <Input
+              id="github-repository"
+              value={repository}
+              onChange={(event) => setRepository(event.target.value)}
+              disabled={Boolean(busy)}
+              maxLength={300}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void importGitHub()}
+              disabled={Boolean(busy) || !repository.trim()}
+            >
+              {busy === 'github' ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <GitBranch />
+              )}
+              가져오기
+            </Button>
+          </div>
+        </section>
+        <section className="integration-section">
+          <div>
+            <strong>의미 기반 Memory Graph</strong>
+            <span>
+              {index
+                ? `완료 기억 ${index.total}건 중 ${index.indexed}건 색인 · AI 컴파일 ${index.compiled}건`
+                : '색인 상태를 확인하는 중입니다.'}
+            </span>
+          </div>
+          <div className="index-meter" aria-label="의미 색인 진행률">
+            <span
+              style={{
+                width: `${index?.total ? (index.indexed / index.total) * 100 : 0}%`,
+              }}
+            />
+          </div>
+          <p className="integration-disclosure">
+            실행하면 처리 완료 이슈의 발췌문을 OpenRouter의 데이터 수집 거부·ZDR
+            조건 제공자에게 전송합니다. API 사용량이 발생할 수 있어 자동
+            실행하지 않습니다. 생성 모델은 GPT 5.6 Luna, 검색 임베딩은 Qwen3
+            Embedding 8B로 분리합니다.
+          </p>
+          <Button
+            size="sm"
+            onClick={() => void buildIndex()}
+            disabled={
+              Boolean(busy) || !index?.embedding.ready || index.remaining === 0
+            }
+          >
+            {busy === 'index' ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <Network />
+            )}
+            다음 {Math.min(32, index?.remaining ?? 0)}건 색인
+          </Button>
+          {index && !index.embedding.ready && (
+            <small className="integration-warning">
+              {index.embedding.reason}
+            </small>
+          )}
+        </section>
+        {message && <p className="integration-message">{message}</p>}
+        {error && <p className="form-error">{error}</p>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function MemoryUniverse() {
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [artifacts, setArtifacts] = useState<MemoryArtifactClient[]>([]);
+  const [memoryIndex, setMemoryIndex] = useState<MemoryIndexInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -388,14 +583,18 @@ export function MemoryUniverse() {
   const [form, setForm] = useState<'create' | 'resolve' | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [integrationOpen, setIntegrationOpen] = useState(false);
+  const [compilingIds, setCompilingIds] = useState<Set<string>>(new Set());
   const searchSequence = useRef(0);
   const briefSequence = useRef(0);
 
   const load = useCallback(async () => {
     try {
-      const data = await api<{ issues: Issue[] }>('/api/issues');
+      const data = await api<IssuesPayload>('/api/issues');
       searchSequence.current += 1;
       setIssues(data.issues);
+      setArtifacts(data.artifacts);
+      setMemoryIndex(data.memoryIndex);
       setError('');
       setDataVersion((value) => value + 1);
       setGraphReady(false);
@@ -417,9 +616,13 @@ export function MemoryUniverse() {
   }, []);
   useEffect(() => {
     let active = true;
-    void api<{ issues: Issue[] }>('/api/issues')
+    void api<IssuesPayload>('/api/issues')
       .then((data) => {
-        if (active) setIssues(data.issues);
+        if (active) {
+          setIssues(data.issues);
+          setArtifacts(data.artifacts);
+          setMemoryIndex(data.memoryIndex);
+        }
       })
       .catch((cause: unknown) => {
         if (active) setError((cause as Error).message);
@@ -445,14 +648,19 @@ export function MemoryUniverse() {
   }, []);
 
   const graph = useMemo(
-    () => createMemoryGraph(issues, neighbors, activeIssueId),
-    [issues, neighbors, activeIssueId],
+    () => createMemoryGraph(issues, neighbors, activeIssueId, artifacts),
+    [issues, neighbors, activeIssueId, artifacts],
   );
   const byId = useMemo(
     () => new Map(issues.map((issue) => [issue.id, issue])),
     [issues],
   );
   const selected = selectedId ? (byId.get(selectedId) ?? null) : null;
+  const artifactById = useMemo(
+    () => new Map(artifacts.map((artifact) => [artifact.issueId, artifact])),
+    [artifacts],
+  );
+  const selectedArtifact = selected ? artifactById.get(selected.id) : undefined;
   const activeIssue = activeIssueId ? byId.get(activeIssueId) : undefined;
   const selectedNodeId = selected ? issueNodeId(selected) : null;
   const memoryCount = issues.filter(
@@ -635,6 +843,7 @@ export function MemoryUniverse() {
         ? '처리 완료. 진행 노드를 제거하고 완료 기억 노드를 생성했습니다. 원문·처리 이력·참고 근거는 그대로 보관됩니다.'
         : '신규 이슈가 접수됐습니다. 이슈를 확인하고 과거 히스토리를 탐색해 보세요.',
     );
+    if (issue.status === 'closed') void compileMemory(issue.id);
   }
   function togglePin(id: string) {
     if (byId.get(id)?.status !== 'closed' || id === referenceId) return;
@@ -686,6 +895,67 @@ export function MemoryUniverse() {
       setProgressBusy(false);
     }
   }
+  async function refreshMemoryArtifacts() {
+    const data = await api<
+      MemoryIndexInfo & { artifacts: MemoryArtifactClient[] }
+    >('/api/memory/index');
+    setArtifacts(data.artifacts);
+    setMemoryIndex((current) =>
+      current
+        ? { ...current, ...data }
+        : { ...data, embedding: data.embedding },
+    );
+  }
+  async function compileMemory(issueId: string) {
+    if (compilingIds.has(issueId)) return;
+    setCompilingIds((current) => new Set(current).add(issueId));
+    try {
+      const result = await api<{
+        artifact: MemoryArtifactClient;
+        reused: boolean;
+        warning?: string;
+      }>(`/api/issues/${encodeURIComponent(issueId)}/memory/compile`, {});
+      setArtifacts((current) => [
+        ...current.filter((artifact) => artifact.issueId !== issueId),
+        result.artifact,
+      ]);
+      await refreshMemoryArtifacts();
+      setNotice(
+        result.warning ||
+          (result.reused
+            ? 'AI 기억과 의미 연결이 이미 최신 상태입니다.'
+            : 'GPT 5.6 Luna가 검색용 기억을 컴파일하고 의미 연결을 갱신했습니다.'),
+      );
+    } catch (cause) {
+      try {
+        await refreshMemoryArtifacts();
+      } catch {}
+      setError(
+        `${(cause as Error).message} 이슈 완료와 원문은 보존됐으며 다시 시도할 수 있습니다.`,
+      );
+    } finally {
+      setCompilingIds((current) => {
+        const next = new Set(current);
+        next.delete(issueId);
+        return next;
+      });
+    }
+  }
+  function acceptIndexedArtifacts(
+    nextArtifacts: MemoryArtifactClient[],
+    nextIndex: Partial<MemoryIndexInfo>,
+  ) {
+    setArtifacts(nextArtifacts);
+    setMemoryIndex((current) =>
+      current ? { ...current, ...nextIndex } : (nextIndex as MemoryIndexInfo),
+    );
+    setDataVersion((value) => value + 1);
+    setGraphReady(false);
+  }
+  async function refreshAfterImport(message: string) {
+    await load();
+    setNotice(message);
+  }
   async function generateBrief() {
     if (!history || !submittedQuery || briefBusy || !llmStatus?.ready) return;
     const sequence = ++briefSequence.current;
@@ -726,16 +996,26 @@ export function MemoryUniverse() {
         </button>
         <div className="header-center">
           <span className="live-dot" /> 개인 POC · 합성 데이터{' '}
-          {issues.filter((issue) => issue.synthetic).length}건 · 외부 도구 연결
-          없이 사용
+          {issues.filter((issue) => issue.synthetic).length}건 · GitHub 단방향
+          연결 가능
         </div>
-        <Button
-          size="sm"
-          disabled={loading || Boolean(error && !issues.length)}
-          onClick={() => setForm('create')}
-        >
-          <Plus /> 이슈 등록
-        </Button>
+        <div className="header-actions">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={loading || Boolean(error && !issues.length)}
+            onClick={() => setIntegrationOpen(true)}
+          >
+            <Plug /> 연결 · AI
+          </Button>
+          <Button
+            size="sm"
+            disabled={loading || Boolean(error && !issues.length)}
+            onClick={() => setForm('create')}
+          >
+            <Plus /> 이슈 등록
+          </Button>
+        </div>
       </header>
       <div className="workflow-strip" aria-label="이슈 처리 흐름">
         <button
@@ -898,7 +1178,13 @@ export function MemoryUniverse() {
                     · {results.filter((result) => result.score > 0).length}건
                     일치
                     <br />
-                    점수는 문장·자료 일치도이며, 정답 확률이 아닙니다.
+                    점수는{' '}
+                    {results.some(
+                      (result) => result.semanticScore !== undefined,
+                    )
+                      ? '의미·문장·자료의 혼합 관련도'
+                      : '문장·자료 일치도'}
+                    이며, 정답 확률이 아닙니다.
                     {history && (
                       <button
                         className="history-report-link"
@@ -1592,7 +1878,11 @@ export function MemoryUniverse() {
                       {shortId(issue.id)} · {issue.title}
                     </strong>
                     <span>
-                      {link.relation} · 내용 {percent(link.textScore)} · 자료{' '}
+                      {link.relation}
+                      {link.semanticScore !== undefined
+                        ? ` · 의미 ${percent(link.semanticScore)}`
+                        : ''}{' '}
+                      · 내용 {percent(link.textScore)} · 자료{' '}
                       {percent(link.resourceScore)} · {link.timeDistanceDays}일
                       차이
                     </span>
@@ -1607,11 +1897,15 @@ export function MemoryUniverse() {
               {selected.source && (
                 <details className="external-example">
                   <summary>
-                    외부 도구 연결 예시 · {selected.source.platform}
+                    외부 원본 · {selected.source.platform}
+                    {selected.source.number
+                      ? ` #${selected.source.number}`
+                      : ''}
                   </summary>
                   <p>
-                    이 이슈는 웹에서 독립적으로 처리합니다. 아래는 연결 가능한
-                    외부 원본의 예시이며 자동 동기화하지 않습니다.
+                    이 이슈는 웹에서 독립적으로 처리합니다. 아래 원본은 단방향
+                    스냅샷으로 연결되며 Websidian의 처리 기록이 원본을 덮어쓰지
+                    않습니다.
                   </p>
                   <a
                     className="source-link"
@@ -1641,15 +1935,38 @@ export function MemoryUniverse() {
                   처리 완료 · 기억으로 전환
                 </Button>
               ) : (
-                <p>
-                  원문 보존 · 처리 기록 포함 탐색 가능
-                  <br />
-                  <span>
-                    {selected.memory
-                      ? `검색 색인 생성 완료 · 참고한 기억 ${selected.memory.relatedIssueIds.length}건`
-                      : '완료 기억 · 내용과 자료를 기준으로 연결됨'}
-                  </span>
-                </p>
+                <div className="memory-artifact-status">
+                  <p>
+                    원문 보존 · 처리 기록 포함 탐색 가능
+                    <br />
+                    <span>
+                      {selectedArtifact?.compileStatus === 'ready'
+                        ? `AI 기억 컴파일 완료 · ${selectedArtifact.embeddingStatus === 'ready' ? '의미 연결 완료' : '벡터 재시도 필요'}`
+                        : selectedArtifact?.compileStatus === 'failed'
+                          ? 'AI 기억 생성 실패 · 원문과 완료 상태는 보존됨'
+                          : selected.memory
+                            ? `추출 색인 보유 · 참고한 기억 ${selected.memory.relatedIssueIds.length}건`
+                            : '완료 기억 · 원문/자료 검색 가능'}
+                    </span>
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={
+                      compilingIds.has(selected.id) || !llmStatus?.ready
+                    }
+                    onClick={() => void compileMemory(selected.id)}
+                  >
+                    {compilingIds.has(selected.id) ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <Network />
+                    )}
+                    {selectedArtifact?.compileStatus === 'ready'
+                      ? 'AI 기억 갱신'
+                      : 'AI 기억 생성'}
+                  </Button>
+                </div>
               )}
             </div>
           </aside>
@@ -1661,11 +1978,21 @@ export function MemoryUniverse() {
         </span>
         <span>D1 영구 저장 · 개인 작업공간</span>
         <span>
-          {llmStatus?.ready
-            ? 'AI Brief 준비됨'
-            : '원문 탐색 사용 가능 · AI 키 설정 필요'}
+          {memoryIndex?.indexed
+            ? `의미 색인 ${memoryIndex.indexed}/${memoryIndex.total} · AI Brief ${llmStatus?.ready ? '준비됨' : '설정 필요'}`
+            : llmStatus?.ready
+              ? 'AI Brief 준비됨 · 의미 색인 대기'
+              : '원문 탐색 사용 가능 · AI 키 설정 필요'}
         </span>
       </footer>
+      {integrationOpen && (
+        <IntegrationDialog
+          index={memoryIndex}
+          onArtifacts={acceptIndexedArtifacts}
+          onImported={refreshAfterImport}
+          onClose={() => setIntegrationOpen(false)}
+        />
+      )}
       {form && (
         <IssueForm
           mode={form}

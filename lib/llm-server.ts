@@ -10,6 +10,12 @@ import {
   type buildBriefContext,
 } from './brief-contract.ts';
 import { llmPolicy } from './llm-policy.ts';
+import type { Issue } from './issues.ts';
+import {
+  buildMemoryCompileRequest,
+  MemoryArtifactError,
+  parseCompiledMemory,
+} from './memory-artifact.ts';
 
 type LlmEnvironment = {
   OPENROUTER_API_KEY?: string;
@@ -261,6 +267,99 @@ export async function generateBrief(
       'AI 연결에 실패했습니다. 원문 기반 히스토리 탐색을 이용해 주세요.',
       503,
     );
+  } finally {
+    inFlight.delete(actor);
+  }
+}
+
+/**
+ * Compile retrieval-only metadata for one completed issue. The caller stores
+ * this separately from the canonical issue and may retry safely.
+ */
+export async function compileIssueMemory(actor: string, issue: Issue) {
+  if (issue.status !== 'closed' || !issue.resolution)
+    throw new MemoryArtifactError(
+      '처리 완료된 이슈만 AI 기억으로 컴파일할 수 있습니다.',
+      409,
+    );
+  const status = await getLlmStatus();
+  if (!status.ready) throw new MemoryArtifactError(status.reason, 503);
+  if (inFlight.has(actor))
+    throw new MemoryArtifactError('이미 AI 작업을 처리 중입니다.', 429);
+  const apiKey = configuration().OPENROUTER_API_KEY?.trim();
+  if (!apiKey) throw new MemoryArtifactError('AI 서버 설정이 필요합니다.', 503);
+  inFlight.add(actor);
+  try {
+    const model = await verifiedModel();
+    await reserveCall(actor);
+    const response = await fetch(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'X-OpenRouter-Title': 'Websidian memory compiler',
+        },
+        body: JSON.stringify(buildMemoryCompileRequest(model, issue)),
+        signal: AbortSignal.timeout(45_000),
+        redirect: 'error',
+      },
+    );
+    if (!response.ok) {
+      await response.body?.cancel();
+      if (response.status === 429)
+        throw new MemoryArtifactError(
+          'AI 제공자의 요청 한도에 도달했습니다.',
+          429,
+        );
+      if ([401, 402, 403].includes(response.status))
+        throw new MemoryArtifactError(
+          'AI 제공자의 키 권한·잔액·모델 접근 설정을 확인해 주세요.',
+          503,
+        );
+      throw new MemoryArtifactError(
+        'AI 기억 컴파일을 완료하지 못했습니다.',
+        502,
+      );
+    }
+    const envelope = (await boundedJson(response, 512_000)) as {
+      choices?: { message?: { content?: unknown }; finish_reason?: string }[];
+    };
+    const choice = envelope.choices?.[0];
+    if (
+      choice?.finish_reason !== 'stop' ||
+      typeof choice.message?.content !== 'string'
+    )
+      throw new MemoryArtifactError('AI 기억 응답이 완성되지 않았습니다.', 502);
+    let raw: unknown;
+    try {
+      raw = JSON.parse(choice.message.content);
+    } catch {
+      throw new MemoryArtifactError(
+        'AI 기억 JSON 형식이 올바르지 않습니다.',
+        502,
+      );
+    }
+    return {
+      compiled: parseCompiledMemory(raw),
+      modelId: model.id,
+      reasoning: model.effort,
+      compiledAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    if (error instanceof MemoryArtifactError) throw error;
+    if (error instanceof BriefError)
+      throw new MemoryArtifactError(error.message, error.status);
+    if (
+      error instanceof Error &&
+      ['AbortError', 'TimeoutError'].includes(error.name)
+    )
+      throw new MemoryArtifactError(
+        'AI 기억 컴파일 시간이 초과되었습니다.',
+        504,
+      );
+    throw new MemoryArtifactError('AI 기억 서비스 연결에 실패했습니다.', 503);
   } finally {
     inFlight.delete(actor);
   }

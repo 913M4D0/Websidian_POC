@@ -7,6 +7,8 @@ import {
 } from '@/lib/api-security';
 import { listIssues } from '@/lib/issue-store';
 import { searchCompletedIssues } from '@/lib/issue-history';
+import { rankHybrid } from '@/lib/memory-artifact';
+import { semanticScores } from '@/lib/memory-service';
 
 export async function POST(request: Request) {
   try {
@@ -30,15 +32,32 @@ export async function POST(request: Request) {
       !issues.some((issue) => issue.id === raw.excludeId)
     )
       throw new ApiError(400, '기준 이슈를 확인해 주세요.');
-    return json({
-      query: raw.query,
-      results: searchCompletedIssues(
+    const lexical = searchCompletedIssues(
+      raw.query,
+      issues,
+      raw.excludeId as string | undefined,
+    );
+    let semantic = new Map<string, number>();
+    let semanticReason = '';
+    try {
+      semantic = await semanticScores(
+        actor,
         raw.query,
         issues,
         raw.excludeId as string | undefined,
-      ),
-      engine: 'lexical-resource-v1',
-      llmConnected: false,
+      );
+    } catch (error) {
+      semanticReason =
+        error instanceof Error
+          ? error.message
+          : '의미 검색을 사용할 수 없어 원문 검색으로 전환했습니다.';
+    }
+    return json({
+      query: raw.query,
+      results: rankHybrid(lexical, semantic),
+      engine: semantic.size ? 'hybrid-embedding-v1' : 'lexical-resource-v1',
+      semanticReason,
+      llmConnected: semantic.size > 0,
     });
   } catch (error) {
     return apiFailure(error);
