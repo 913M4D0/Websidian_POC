@@ -7,9 +7,32 @@ import {
   type MemoryArtifact,
 } from './memory-artifact.ts';
 
-const database = () => {
+let initialization: Promise<unknown> | undefined;
+const database = async () => {
   const db = (env as unknown as { DB?: D1Database }).DB;
   if (!db) throw new ApiError(503, 'AI 기억 저장소가 연결되지 않았습니다.');
+  // Deployments use the checked-in Drizzle migration. This idempotent guard
+  // also keeps local Wrangler and an interrupted migration recoverable.
+  initialization ??= db
+    .prepare(`CREATE TABLE IF NOT EXISTS websidian_memory_artifacts (
+      owner_id TEXT NOT NULL,
+      issue_id TEXT NOT NULL,
+      source_revision INTEGER NOT NULL,
+      content_hash TEXT NOT NULL,
+      compile_status TEXT NOT NULL,
+      embedding_status TEXT NOT NULL,
+      embedding_model TEXT,
+      dimensions INTEGER,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(owner_id, issue_id)
+    )`)
+    .run()
+    .catch((error) => {
+      initialization = undefined;
+      throw error;
+    });
+  await initialization;
   return db;
 };
 
@@ -23,7 +46,9 @@ function parse(payload: string): MemoryArtifact | null {
 }
 
 export async function listMemoryArtifacts(actor: string) {
-  const rows = await database()
+  const rows = await (
+    await database()
+  )
     .prepare(
       'SELECT payload FROM websidian_memory_artifacts WHERE owner_id = ?',
     )
@@ -35,7 +60,9 @@ export async function listMemoryArtifacts(actor: string) {
 }
 
 export async function findMemoryArtifact(actor: string, issueId: string) {
-  const row = await database()
+  const row = await (
+    await database()
+  )
     .prepare(
       'SELECT payload FROM websidian_memory_artifacts WHERE owner_id = ? AND issue_id = ?',
     )
@@ -49,7 +76,7 @@ export async function saveMemoryArtifacts(
   artifacts: MemoryArtifact[],
 ) {
   if (!artifacts.length) return;
-  const db = database();
+  const db = await database();
   const statements = artifacts.map((artifact) =>
     db
       .prepare(`INSERT INTO websidian_memory_artifacts
