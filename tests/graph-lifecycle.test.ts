@@ -201,6 +201,23 @@ void test('ordered nebula is deterministic, finite, unique, and grows outward wi
     Math.max(...armOccupancy) - Math.min(...armOccupancy) <= 12,
     `unbalanced nebula arms: ${armOccupancy.join(',')}`,
   );
+  const coordinates = [...first.values()];
+  const depthValues = coordinates.map((point) => point.z);
+  const depthSpan = Math.max(...depthValues) - Math.min(...depthValues);
+  const standardDeviation = (values: number[]) => {
+    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+    return Math.sqrt(
+      values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+        values.length,
+    );
+  };
+  const planarDeviation = Math.sqrt(
+    (standardDeviation(coordinates.map((point) => point.x)) ** 2 +
+      standardDeviation(coordinates.map((point) => point.y)) ** 2) /
+      2,
+  );
+  assert.ok(depthSpan > 145, `flat nebula depth: ${depthSpan}`);
+  assert.ok(standardDeviation(depthValues) / planarDeviation > 0.18);
 });
 
 void test('recorded completion evidence survives the edge budget without implying similarity or causality', () => {

@@ -138,13 +138,17 @@ export function createNebulaLayout(
       (arm / armCount) * fullTurn +
       progress * Math.PI * 3.2 +
       centeredNoise(node.issueId, 'spiral-angle') * 0.12;
-    const thickness = 12 + radius * 0.09;
+    const thickness = 16 + radius * 0.22;
+    const spineLift =
+      Math.sin(angle * 0.72 + arm * (fullTurn / armCount)) *
+      (6 + radius * 0.12);
     const anchor = {
       x: Math.cos(angle) * radius * 1.1,
       y: Math.sin(angle) * radius * 0.7,
       z:
-        Math.sin(angle * 0.78 + arm * 0.61) * thickness * 0.34 +
-        centeredNoise(node.issueId, 'spiral-depth') * thickness * 0.82,
+        spineLift +
+        centeredNoise(node.issueId, 'spiral-depth') * thickness * 1.05 +
+        centeredNoise(node.issueId, 'spiral-depth-fine') * thickness * 0.36,
     };
     anchors.set(node.id, anchor);
     positions.set(node.id, { ...anchor });

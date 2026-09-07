@@ -242,7 +242,7 @@ function fitNebulaCamera(
   const centerY = (bottom + top) / 2;
   const orientationCamera = camera.clone();
   if (resetOrientation) {
-    orientationCamera.position.set(0, 24, 690);
+    orientationCamera.position.set(205, 92, 680);
     orientationCamera.lookAt(0, -16, 0);
   }
   const orientation = orientationCamera.quaternion;
@@ -1029,36 +1029,36 @@ export function GraphStage({
             return group;
           })
           .linkColor((link) => {
-            if (isSelectedIncident(link)) return 'rgba(245,248,252,.9)';
-            if (isHoverIncident(link)) return 'rgba(220,220,190,.68)';
+            if (isSelectedIncident(link)) return 'rgba(245,248,252,.96)';
+            if (isHoverIncident(link)) return 'rgba(220,220,190,.8)';
             if (isPrimaryTreeLink(link)) {
               const gravity = gravityLayoutRef.current;
               const depth = Math.max(
                 gravity?.depthById.get(linkEndpointId(link.source)) ?? 0,
                 gravity?.depthById.get(linkEndpointId(link.target)) ?? 0,
               );
-              return `rgba(86,156,214,${depth <= 1 ? 0.46 : depth === 2 ? 0.29 : 0.17})`;
+              return `rgba(86,156,214,${depth <= 1 ? 0.62 : depth === 2 ? 0.43 : 0.28})`;
             }
-            if (isFocusedCrossLink(link)) return 'rgba(197,134,192,.13)';
-            if (gravityLayoutRef.current) return 'rgba(133,148,162,.08)';
+            if (isFocusedCrossLink(link)) return 'rgba(197,134,192,.2)';
+            if (gravityLayoutRef.current) return 'rgba(133,148,162,.11)';
             if (
               stateRef.current.activeCluster &&
               nodeById.get(linkEndpointId(link.source))?.cluster !==
                 stateRef.current.activeCluster
             )
-              return 'rgba(123,137,151,.05)';
+              return 'rgba(123,137,151,.08)';
             if (isActiveIncident(link))
-              return `rgba(237,243,249,${0.14 + link.score * 0.1})`;
-            return `rgba(132,153,174,${0.075 + link.score * 0.13})`;
+              return `rgba(237,243,249,${0.26 + link.score * 0.16})`;
+            return `rgba(132,153,174,${0.12 + link.score * 0.16})`;
           })
           .linkWidth((link) => {
-            if (isSelectedIncident(link)) return 1.05;
-            if (isHoverIncident(link)) return 0.78;
-            if (isPrimaryTreeLink(link)) return 0.42;
-            if (isFocusedCrossLink(link)) return 0.15;
-            if (gravityLayoutRef.current) return 0.06;
-            if (isActiveIncident(link)) return 0.1 + link.score * 0.12;
-            return 0.07 + link.score * 0.1;
+            if (isSelectedIncident(link)) return 1.35;
+            if (isHoverIncident(link)) return 1;
+            if (isPrimaryTreeLink(link)) return 0.55;
+            if (isFocusedCrossLink(link)) return 0.22;
+            if (gravityLayoutRef.current) return 0.09;
+            if (isActiveIncident(link)) return 0.28 + link.score * 0.24;
+            return 0.16 + link.score * 0.18;
           })
           .linkOpacity(1)
           .linkDirectionalParticles(() => 0)
@@ -1191,7 +1191,7 @@ export function GraphStage({
         const controls = graph.controls();
         controls.autoRotate = false;
         graph.cameraPosition(
-          { x: 0, y: 24, z: 690 },
+          { x: 205, y: 92, z: 680 },
           { x: 0, y: -16, z: 0 },
           0,
         );
@@ -1217,13 +1217,14 @@ export function GraphStage({
           if (node.phase === 'memory') baseColour.lerp(coolMist, 0.54);
           for (let index = 0; index < dustCount; index += 1) {
             const radius =
-              Math.pow(random(), 0.62) * (node.phase === 'active' ? 14 : 25);
-            const theta = random() * Math.PI * 2;
-            const depth = (random() * 2 - 1) * radius * 0.72;
+              Math.cbrt(random()) * (node.phase === 'active' ? 18 : 30);
+            const vertical = random() * 2 - 1;
+            const angle = random() * Math.PI * 2;
+            const equator = Math.sqrt(Math.max(0, 1 - vertical * vertical));
             dustPositions.push(
-              center.x + Math.cos(theta) * radius,
-              center.y + Math.sin(theta) * radius * 0.52,
-              center.z + depth,
+              center.x + Math.cos(angle) * equator * radius,
+              center.y + Math.sin(angle) * equator * radius * 0.78,
+              center.z + vertical * radius * 1.45,
             );
             const colour = baseColour
               .clone()
@@ -1241,7 +1242,7 @@ export function GraphStage({
           new THREE.Float32BufferAttribute(dustColours, 3),
         );
         const dustMaterial = new THREE.PointsMaterial({
-          size: 0.82,
+          size: 0.96,
           vertexColors: true,
           transparent: true,
           opacity: 0.12,
