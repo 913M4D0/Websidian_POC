@@ -11,6 +11,118 @@ const markers = () => /<<([^<>\r\n]{1,40})>>/g;
 
 type Section = { name: string; body: string };
 
+export type DelimitedDisplayKind =
+  | 'analysis'
+  | 'test-cases'
+  | 'brief'
+  | 'memory';
+
+export type DelimitedDisplayField = {
+  label: string;
+  value: string;
+};
+
+export type DelimitedDisplayBlock = {
+  label: string;
+  body: string;
+  fields: DelimitedDisplayField[];
+};
+
+export type DelimitedDisplay = {
+  blocks: DelimitedDisplayBlock[];
+};
+
+const displaySchemas: Record<
+  DelimitedDisplayKind,
+  { topLevel: readonly string[]; fields: readonly string[] }
+> = {
+  analysis: {
+    topLevel: ['요약', '확인된맥락', '주의할위험', '권장처리', '추가확인'],
+    fields: ['제목', '구분', '근거', '내용'],
+  },
+  'test-cases': {
+    topLevel: ['전략', '테스트케이스', '회귀범위'],
+    fields: [
+      '번호',
+      '제목',
+      '우선순위',
+      '사전조건',
+      '실행단계',
+      '기대결과',
+      '근거',
+      '구분',
+      '내용',
+    ],
+  },
+  brief: {
+    topLevel: ['요약', '확인사항', '주의사항', '다음행동'],
+    fields: ['제목', '구분', '근거', '내용'],
+  },
+  memory: {
+    topLevel: ['요약', '핵심어', '분류'],
+    fields: ['이름', '값'],
+  },
+};
+
+/**
+ * Strict presentation parser. Complete output must end with <<끝>>; unknown,
+ * unbalanced, or out-of-order markers deliberately return null so the UI can
+ * show the provider's untouched text instead of hiding a malformed response.
+ */
+export function parseDelimitedDisplay(
+  output: string,
+  kind: DelimitedDisplayKind,
+): DelimitedDisplay | null {
+  const normalized = output.replace(/\r\n?/g, '\n');
+  const schema = displaySchemas[kind];
+  const topLevel = new Set(schema.topLevel);
+  const fieldNames = new Set(schema.fields);
+  const allowed = new Set([...schema.topLevel, ...schema.fields, '끝']);
+  const matches = [...normalized.matchAll(markers())];
+  if (!matches.length || normalized.slice(0, matches[0].index).trim())
+    return null;
+
+  const withoutValidMarkers = normalized.replace(markers(), '');
+  if (withoutValidMarkers.includes('<<') || withoutValidMarkers.includes('>>'))
+    return null;
+
+  const tokens = matches.map((match, index) => ({
+    label: match[1].trim(),
+    value: normalized
+      .slice(match.index! + match[0].length, matches[index + 1]?.index)
+      .trim(),
+  }));
+  if (tokens.some((token) => !allowed.has(token.label))) return null;
+  if (tokens[0].label !== schema.topLevel[0]) return null;
+
+  const endIndex = tokens.findIndex((token) => token.label === '끝');
+  const complete = endIndex === tokens.length - 1;
+  if (!complete || tokens[endIndex].value) return null;
+
+  const contentTokens = tokens.slice(0, -1);
+  const blocks: DelimitedDisplayBlock[] = [];
+  for (const token of contentTokens) {
+    if (topLevel.has(token.label)) {
+      blocks.push({ label: token.label, body: token.value, fields: [] });
+      continue;
+    }
+    if (!fieldNames.has(token.label) || !blocks.length) return null;
+    blocks[blocks.length - 1].fields.push({
+      label: token.label,
+      value: token.value,
+    });
+  }
+
+  if (
+    !blocks.length ||
+    blocks.some(
+      (block) => !block.body && !block.fields.some((item) => item.value),
+    )
+  )
+    return null;
+  return { blocks };
+}
+
 function sections(text: string, topLevel: readonly string[]) {
   const normalized = text.replace(/\r\n?/g, '\n').trim();
   const allowed = new Set(topLevel);

@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react';
 import { GraphStage, type GravitySummary } from '@/components/issue-graph';
+import { DelimitedOutputView } from '@/components/delimited-output-view';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -773,7 +774,7 @@ function InsightDialog({
             {analysis.warning && (
               <p className="insight-stream-warning">{analysis.warning}</p>
             )}
-            <pre className="llm-plain-output">{analysis.content}</pre>
+            <DelimitedOutputView content={analysis.content} kind="analysis" />
             <div className="insight-citations">
               {analysis.evidenceIds.map((id) => (
                 <button key={id} onClick={() => onEvidence(id)}>
@@ -793,7 +794,7 @@ function InsightDialog({
             {testPlan.warning && (
               <p className="insight-stream-warning">{testPlan.warning}</p>
             )}
-            <pre className="llm-plain-output">{testPlan.content}</pre>
+            <DelimitedOutputView content={testPlan.content} kind="test-cases" />
             <div className="insight-citations">
               {testPlan.evidenceIds.map((id) => (
                 <button key={id} onClick={() => onEvidence(id)}>
@@ -1787,7 +1788,7 @@ export function MemoryUniverse() {
                     {brief.warning && (
                       <p className="insight-stream-warning">{brief.warning}</p>
                     )}
-                    <pre className="llm-plain-output">{brief.content}</pre>
+                    <DelimitedOutputView content={brief.content} kind="brief" />
                     <div className="brief-citations">
                       {brief.evidenceIds.map((id) => (
                         <button

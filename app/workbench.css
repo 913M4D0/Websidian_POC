@@ -1752,6 +1752,95 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.llm-section-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.llm-section-card {
+  --section-accent: #569cd6;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #3b4146;
+  border-left: 3px solid var(--section-accent);
+  border-radius: 5px;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--section-accent) 8%, transparent),
+      transparent 34%
+    ),
+    #232628;
+  box-shadow: inset 0 1px #ffffff08;
+}
+.llm-section-card.is-lead {
+  --section-accent: #4ec9b0;
+}
+.llm-section-card.is-warning {
+  --section-accent: #d7ba7d;
+}
+.llm-section-card.is-action {
+  --section-accent: #89d185;
+}
+.llm-section-card.is-test {
+  --section-accent: #c586c0;
+}
+.llm-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px 9px;
+  border-bottom: 1px solid #353a3e;
+}
+.llm-section-heading > span {
+  color: color-mix(in srgb, var(--section-accent) 78%, #d4d4d4);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.llm-section-heading h3 {
+  margin: 0;
+  color: #e5e7e8;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.llm-section-body {
+  margin: 0;
+  padding: 13px 14px 14px;
+  color: #d1d5d7;
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.llm-section-fields {
+  margin: 0;
+}
+.llm-section-fields > div {
+  display: grid;
+  grid-template-columns: minmax(82px, 0.24fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid #34393d;
+}
+.llm-section-heading + .llm-section-fields > div:first-child {
+  border-top: 0;
+}
+.llm-section-fields dt {
+  color: color-mix(in srgb, var(--section-accent) 70%, #b8bec2);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.75;
+}
+.llm-section-fields dd {
+  min-width: 0;
+  margin: 0;
+  color: #c8cdd0;
+  font-size: 12.5px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .insight-stream-warning {
   margin: 10px 0;
   padding: 9px 11px;
@@ -1760,6 +1849,12 @@
   color: #d9c99e;
   font-size: 11px;
   line-height: 1.65;
+}
+@media (max-width: 560px) {
+  .llm-section-fields > div {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
 }
 .insight-result > h3 {
   margin: 27px 0 11px;

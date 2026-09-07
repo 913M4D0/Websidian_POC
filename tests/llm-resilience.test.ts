@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   parseDelimitedBrief,
+  parseDelimitedDisplay,
   parseDelimitedIssueAnalysis,
   parseDelimitedIssueTestPlan,
   parseDelimitedMemory,
@@ -92,6 +93,63 @@ void test('malformed or missing delimiters never discard non-empty model text', 
   assert.match(parseDelimitedMemory(raw).summary, /구획을/);
 });
 
+void test('complete delimiter output is grouped into presentation cards and fields', () => {
+  const content = [
+    '<<요약>>',
+    '현재 이슈의 핵심 맥락입니다.',
+    '<<확인된맥락>>',
+    '<<제목>>과거 처리 사례',
+    '<<구분>>사실',
+    '<<근거>>WS-007',
+    '<<내용>>과거에는 설정을 되돌렸습니다.',
+    '<<권장처리>>',
+    '<<제목>>범위 확인',
+    '<<구분>>추정',
+    '<<근거>>WS-007',
+    '<<내용>>적용 범위를 먼저 비교합니다.',
+    '<<끝>>',
+  ].join('\n');
+  const parsed = parseDelimitedDisplay(content, 'analysis');
+  assert.ok(parsed);
+  assert.equal(parsed.blocks.length, 3);
+  assert.deepEqual(parsed.blocks[1], {
+    label: '확인된맥락',
+    body: '',
+    fields: [
+      { label: '제목', value: '과거 처리 사례' },
+      { label: '구분', value: '사실' },
+      { label: '근거', value: 'WS-007' },
+      { label: '내용', value: '과거에는 설정을 되돌렸습니다.' },
+    ],
+  });
+});
+
+void test('incomplete or malformed delimiter output falls back without alteration', () => {
+  const malformed = [
+    '<<요약>>',
+    '앞부분은 정상입니다.',
+    '<<확인사항>>',
+    '<<제목>>닫히지 않은 결과',
+    '<<내용>>받은 텍스트는 보존합니다.',
+  ].join('\n');
+  assert.equal(parseDelimitedDisplay(malformed, 'brief'), null);
+  assert.equal(
+    parseDelimitedDisplay(`${malformed}\n<<알수없는구획>>값\n<<끝>>`, 'brief'),
+    null,
+  );
+  assert.equal(
+    parseDelimitedDisplay(`설명 문구\n${malformed}\n<<끝>>`, 'brief'),
+    null,
+  );
+  assert.equal(
+    parseDelimitedDisplay(
+      '<<전략>>정상 시작\n<<테스트케이스>깨진 표식\n<<끝>>',
+      'test-cases',
+    ),
+    null,
+  );
+});
+
 void test('delimiter parsing never invents a valid citation for uncited text', () => {
   const parsed = parseDelimitedIssueAnalysis(
     '<<요약>>확정이라고 주장함\n<<확인된맥락>>\n<<제목>>근거 없음\n<<구분>>사실\n<<근거>>NOT-ALLOWED\n<<내용>>확정이라고 주장함\n<<끝>>',
@@ -127,14 +185,29 @@ void test('completed issues always have a deterministic source memory when AI is
   assert.ok(memory.facets.some((facet) => facet.name === '처리 결과'));
 });
 
-void test('the UI renders provider text directly instead of requiring parsed delimiters', () => {
+void test('the UI formats complete delimiters and preserves raw streaming or broken output', () => {
   const source = readFileSync(
     new URL('../components/memory-universe.tsx', import.meta.url),
     'utf8',
   );
-  assert.match(source, /llm-plain-output[^\n]*\{analysis\.content\}/);
-  assert.match(source, /llm-plain-output[^\n]*\{testPlan\.content\}/);
-  assert.match(source, /llm-plain-output[^\n]*\{brief\.content\}/);
+  assert.match(
+    source,
+    /DelimitedOutputView content=\{analysis\.content\} kind="analysis"/,
+  );
+  assert.match(source, /content=\{testPlan\.content\}[\s\S]*kind="test-cases"/);
+  assert.match(
+    source,
+    /DelimitedOutputView content=\{brief\.content\} kind="brief"/,
+  );
+  assert.match(source, /llm-plain-output[^\n]*\{draft\}/);
+  assert.match(source, /llm-plain-output[^\n]*\{briefDraft\}/);
+  const view = readFileSync(
+    new URL('../components/delimited-output-view.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(view, /data-output-format="raw"/);
+  assert.match(view, /data-output-format="sections"/);
+  assert.doesNotMatch(view, /dangerouslySetInnerHTML/);
   assert.match(source, /Accept: 'text\/event-stream'/);
   assert.doesNotMatch(source, /pendingBirthIds/);
   assert.match(source, /setBirthIssueId\(issue\.id\)/);
