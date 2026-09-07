@@ -47,8 +47,8 @@ type GenerationHooks = {
   signal?: AbortSignal;
 };
 
-const generationSignal = (signal?: AbortSignal) => {
-  const deadline = AbortSignal.timeout(llmPolicy.generationTimeoutMs);
+const generationSignal = (timeoutMs: number, signal?: AbortSignal) => {
+  const deadline = AbortSignal.timeout(timeoutMs);
   return signal ? AbortSignal.any([signal, deadline]) : deadline;
 };
 
@@ -115,8 +115,16 @@ async function verifiedModel(): Promise<VerifiedModel> {
         );
       }
     })();
-    // Retain a short failure cache too, avoiding catalog request storms on outage.
-    catalogCache = { expires: Date.now() + 120_000, promise };
+    // A successful public catalog check is stable for a working session. Cache
+    // failures only briefly so a transient catalog outage does not disable AI.
+    catalogCache = { expires: Date.now() + 15_000, promise };
+    void promise.then(
+      () => {
+        if (catalogCache?.promise === promise)
+          catalogCache.expires = Date.now() + 21_600_000;
+      },
+      () => undefined,
+    );
   }
   return catalogCache.promise;
 }
@@ -164,7 +172,7 @@ export async function getLlmStatus(): Promise<LlmStatus> {
 /** Durable request reservations, atomic across Worker isolates; failures consume a slot too. */
 async function reserveCall(
   actor: string,
-  lane: 'insight' | 'brief' | 'memory',
+  lane: 'analysis' | 'test-cases' | 'brief' | 'memory',
 ) {
   const db = configuration().DB;
   if (!db)
@@ -186,8 +194,8 @@ async function reserveCall(
     .bind(now)
     .run();
   for (const [duration, globalMaximum, laneMaximum] of [
-    [60_000, 6, 4],
-    [3_600_000, 36, 24],
+    [60_000, 12, 6],
+    [3_600_000, 120, 60],
   ]) {
     for (const [scope, maximum] of [
       ['global', globalMaximum],
@@ -207,6 +215,49 @@ async function reserveCall(
         );
     }
   }
+}
+
+const retryableProviderStatuses = new Set([408, 425, 500, 502, 503, 504]);
+
+/** Retry once only before any model output can have been emitted. */
+async function fetchGeneration(
+  operation: string,
+  startedAt: number,
+  url: string,
+  init: RequestInit,
+) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(url, init);
+      if (
+        response.ok ||
+        attempt > 0 ||
+        !retryableProviderStatuses.has(response.status)
+      )
+        return response;
+      logProviderFailure(operation, 'provider-retry', startedAt, {
+        upstreamStatus: response.status,
+        providerRequestId: providerRequestId(response),
+        attempt: attempt + 1,
+      });
+      await response.body?.cancel();
+    } catch (error) {
+      if (
+        attempt > 0 ||
+        init.signal?.aborted ||
+        (error instanceof Error &&
+          ['AbortError', 'TimeoutError'].includes(error.name))
+      )
+        throw error;
+      logProviderFailure(operation, 'network-retry', startedAt, {
+        upstreamStatus: 0,
+        providerRequestId: 'unavailable',
+        attempt: attempt + 1,
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+  throw new BriefError('AI 서비스 연결에 실패했습니다.', 503);
 }
 
 function providerRequestId(response: Response) {
@@ -375,10 +426,16 @@ async function generateIssueInsight(
   if (!apiKey) throw new BriefError('AI 서버 설정이 필요합니다.', 503);
   inFlight.add(lockKey);
   const startedAt = Date.now();
+  const profile =
+    kind === 'analysis'
+      ? llmPolicy.generation.analysis
+      : llmPolicy.generation.testCases;
   try {
     const model = await verifiedModel();
-    await reserveCall(actor, 'insight');
-    const response = await fetch(
+    await reserveCall(actor, kind);
+    const response = await fetchGeneration(
+      kind,
+      startedAt,
       'https://openrouter.ai/api/v1/chat/completions',
       {
         method: 'POST',
@@ -392,7 +449,7 @@ async function generateIssueInsight(
           'X-OpenRouter-Metadata': 'enabled',
         },
         body: JSON.stringify(buildIssueInsightRequest(model, context, kind)),
-        signal: generationSignal(hooks.signal),
+        signal: generationSignal(profile.timeoutMs, hooks.signal),
         redirect: 'manual',
       },
     );
@@ -433,7 +490,7 @@ async function generateIssueInsight(
       evidenceIds: context.citationIds,
       content: streamed.text,
       modelId: model.id,
-      reasoning: model.effort,
+      reasoning: profile.effort,
       generatedAt: new Date().toISOString(),
       engine: 'openrouter' as const,
       ...(warning ? { warning } : {}),
@@ -462,7 +519,7 @@ async function generateIssueInsight(
       ['AbortError', 'TimeoutError'].includes(error.name)
     )
       throw new BriefError(
-        'AI 최대 추론이 3분 안에 완료되지 않았습니다. 자동 재요청하지 않았습니다.',
+        `AI 생성이 ${Math.round(profile.timeoutMs / 1000)}초 안에 완료되지 않았습니다.`,
         504,
       );
     throw new BriefError('AI 서비스 연결에 실패했습니다.', 503);
@@ -492,11 +549,13 @@ export async function generateIssueAnalysis(
       operation: 'analysis',
       status: error instanceof BriefError ? error.status : 503,
     });
-    return sourceInsightFallback(
+    const fallback = sourceInsightFallback(
       context,
       'analysis',
       reason,
     ) as IssueAnalysisResponse;
+    hooks.onDelta?.(fallback.content);
+    return fallback;
   }
 }
 
@@ -521,11 +580,13 @@ export async function generateIssueTestCases(
       operation: 'test-cases',
       status: error instanceof BriefError ? error.status : 503,
     });
-    return sourceInsightFallback(
+    const fallback = sourceInsightFallback(
       context,
       'test-cases',
       reason,
     ) as IssueTestPlanResponse;
+    hooks.onDelta?.(fallback.content);
+    return fallback;
   }
 }
 
@@ -546,7 +607,9 @@ async function generateBriefWithProvider(
   try {
     const model = await verifiedModel();
     await reserveCall(actor, 'brief');
-    const response = await fetch(
+    const response = await fetchGeneration(
+      'brief',
+      startedAt,
       'https://openrouter.ai/api/v1/chat/completions',
       {
         method: 'POST',
@@ -557,7 +620,10 @@ async function generateBriefWithProvider(
           'X-OpenRouter-Metadata': 'enabled',
         },
         body: JSON.stringify(buildOpenRouterRequest(model, context)),
-        signal: generationSignal(hooks.signal),
+        signal: generationSignal(
+          llmPolicy.generation.brief.timeoutMs,
+          hooks.signal,
+        ),
         redirect: 'manual',
       },
     );
@@ -602,7 +668,7 @@ async function generateBriefWithProvider(
       content: streamed.text,
       evidenceIds,
       modelId: model.id,
-      reasoning: model.effort,
+      reasoning: llmPolicy.generation.brief.effort,
       generatedAt: new Date().toISOString(),
       engine: 'openrouter',
       ...(warning ? { warning } : {}),
@@ -615,7 +681,7 @@ async function generateBriefWithProvider(
       ['AbortError', 'TimeoutError'].includes(error.name)
     )
       throw new BriefError(
-        'AI 최대 추론이 3분 안에 완료되지 않았습니다. 자동 재요청하지 않았습니다.',
+        `AI 생성이 ${Math.round(llmPolicy.generation.brief.timeoutMs / 1000)}초 안에 완료되지 않았습니다.`,
         504,
       );
     throw new BriefError(
@@ -643,7 +709,9 @@ export async function generateBrief(
       operation: 'brief',
       status: error instanceof BriefError ? error.status : 503,
     });
-    return sourceBriefFallback(context, reason);
+    const fallback = sourceBriefFallback(context, reason);
+    hooks.onDelta?.(fallback.content);
+    return fallback;
   }
 }
 
@@ -669,7 +737,9 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
   try {
     const model = await verifiedModel();
     await reserveCall(actor, 'memory');
-    const response = await fetch(
+    const response = await fetchGeneration(
+      'memory',
+      startedAt,
       'https://openrouter.ai/api/v1/chat/completions',
       {
         method: 'POST',
@@ -680,7 +750,7 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
           'X-OpenRouter-Metadata': 'enabled',
         },
         body: JSON.stringify(buildMemoryCompileRequest(model, issue)),
-        signal: AbortSignal.timeout(llmPolicy.generationTimeoutMs),
+        signal: AbortSignal.timeout(llmPolicy.generation.memory.timeoutMs),
         redirect: 'manual',
       },
     );
@@ -730,7 +800,7 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
       compiled,
       content: streamed.text,
       modelId: model.id,
-      reasoning: model.effort,
+      reasoning: llmPolicy.generation.memory.effort,
       compiledAt: new Date().toISOString(),
       ...(warning ? { warning } : {}),
     };
@@ -743,7 +813,7 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
       ['AbortError', 'TimeoutError'].includes(error.name)
     )
       throw new MemoryArtifactError(
-        'AI 기억 컴파일이 3분 안에 완료되지 않았습니다.',
+        `AI 기억 컴파일이 ${Math.round(llmPolicy.generation.memory.timeoutMs / 1000)}초 안에 완료되지 않았습니다.`,
         504,
       );
     throw new MemoryArtifactError('AI 기억 서비스 연결에 실패했습니다.', 503);

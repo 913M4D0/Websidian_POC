@@ -2,6 +2,7 @@ import { BriefError, type VerifiedModel } from './brief-contract.ts';
 import { buildHistory, type HistoryEvidence } from './issue-history.ts';
 import { issueText } from './issue-search.ts';
 import type { Issue } from './issues.ts';
+import { llmPolicy } from './llm-policy.ts';
 
 export type InsightClaim = {
   title: string;
@@ -315,13 +316,17 @@ export function buildIssueInsightRequest(
   kind: 'analysis' | 'test-cases',
 ) {
   const ids = context.citationIds;
+  const profile =
+    kind === 'analysis'
+      ? llmPolicy.generation.analysis
+      : llmPolicy.generation.testCases;
   const common = {
     model: model.id,
     stream: true,
-    max_tokens: model.maxTokens,
-    reasoning: { effort: model.effort, exclude: true },
+    service_tier: 'priority',
+    max_tokens: Math.min(model.maxTokens, profile.maxTokens),
+    reasoning: { effort: profile.effort, exclude: true },
     provider: {
-      require_parameters: true,
       allow_fallbacks: true,
       data_collection: 'deny',
       sort: 'latency',
@@ -343,7 +348,9 @@ export function buildIssueInsightRequest(
           kind === 'analysis'
             ? 'Use this delimiter format exactly: <<요약>>; repeat <<확인된맥락>> blocks with <<제목>>, <<구분>>(사실 or 추정), <<근거>>(comma-separated allowed IDs), <<내용>>; repeat <<주의할위험>> and <<권장처리>> blocks with the same fields; repeat <<추가확인>> for each question; finish with <<끝>>. Produce exactly 3 맥락, at most 2 risks, exactly 3 recommendations, and at most 2 questions.'
             : 'Use this delimiter format exactly: <<전략>>; exactly 3 <<테스트케이스>> blocks containing <<번호>>, <<제목>>, <<우선순위>>(필수, 높음, or 보통), <<사전조건>>(at most 2 lines), <<실행단계>>(3 to 5 lines), <<기대결과>>, <<근거>>(comma-separated allowed IDs); at most 2 <<회귀범위>> blocks with <<제목>>, <<구분>>, <<근거>>, <<내용>>; finish with <<끝>>.',
-          'Keep every field short enough for the final answer to finish within the available output budget.',
+          kind === 'analysis'
+            ? 'Begin immediately with <<요약>>. Keep the entire answer under 3,500 Korean characters and do not try to use the full token budget.'
+            : 'Begin immediately with <<전략>>. Keep the entire answer under 5,500 Korean characters and do not try to use the full token budget.',
         ].join('\n'),
       },
       { role: 'user', content: JSON.stringify(context) },

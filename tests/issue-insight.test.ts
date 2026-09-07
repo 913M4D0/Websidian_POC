@@ -15,7 +15,7 @@ const issues = JSON.parse(
 ) as Issue[];
 const model = {
   id: 'openai/gpt-5.6-luna',
-  effort: 'max',
+  effort: 'medium',
   maxTokens: 16000,
 };
 
@@ -137,10 +137,12 @@ void test('automatic provider requests stream concise delimiter text with endpoi
   for (const kind of ['analysis', 'test-cases'] as const) {
     const request = buildIssueInsightRequest(model, context, kind);
     assert.equal(request.model, 'openai/gpt-5.6-luna');
-    assert.deepEqual(request.reasoning, { effort: 'max', exclude: true });
+    assert.deepEqual(request.reasoning, { effort: 'medium', exclude: true });
     assert.equal(request.stream, true);
+    assert.equal(request.service_tier, 'priority');
+    assert.equal(request.max_tokens, kind === 'analysis' ? 6000 : 8000);
     assert.equal(request.provider.allow_fallbacks, true);
-    assert.equal(request.provider.require_parameters, true);
+    assert.equal('require_parameters' in request.provider, false);
     assert.equal(request.provider.data_collection, 'deny');
     assert.equal(request.provider.sort, 'latency');
     assert.equal('tools' in request, false);

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   BriefError,
@@ -109,10 +108,10 @@ void test('Brief input whitelists query and IDs, not model/prompts/forged eviden
   assert.throws(() => parseBriefInput(null), BriefError);
 });
 
-void test('model selection preserves exact Luna, maximum reasoning, and full advertised token budget', () => {
+void test('model selection preserves exact Luna while choosing balanced reasoning', () => {
   assert.deepEqual(verifyRequestedModel(catalog, 'openai/gpt-5.6-luna'), {
     id: 'openai/gpt-5.6-luna',
-    effort: 'max',
+    effort: 'medium',
     maxTokens: 128000,
   });
   const higherMissing = structuredClone(catalog);
@@ -120,7 +119,7 @@ void test('model selection preserves exact Luna, maximum reasoning, and full adv
   higherMissing.data[0].top_provider.max_completion_tokens = 8192;
   assert.deepEqual(verifyRequestedModel(higherMissing, 'openai/gpt-5.6-luna'), {
     id: 'openai/gpt-5.6-luna',
-    effort: 'high',
+    effort: 'medium',
     maxTokens: 8192,
   });
   assert.throws(
@@ -144,24 +143,18 @@ void test('model selection preserves exact Luna, maximum reasoning, and full adv
   );
 });
 
-void test('every chat path allows maximum reasoning to run for three minutes', () => {
-  assert.equal(llmPolicy.generationTimeoutMs, 180_000);
-  const source = readFileSync(
-    new URL('../lib/llm-server.ts', import.meta.url),
-    'utf8',
+void test('every chat path uses a bounded demo-safe generation profile', () => {
+  assert.deepEqual(llmPolicy.generation, {
+    analysis: { effort: 'medium', maxTokens: 6_000, timeoutMs: 60_000 },
+    testCases: { effort: 'medium', maxTokens: 8_000, timeoutMs: 75_000 },
+    brief: { effort: 'medium', maxTokens: 6_000, timeoutMs: 60_000 },
+    memory: { effort: 'medium', maxTokens: 3_000, timeoutMs: 45_000 },
+  });
+  assert.ok(
+    Object.values(llmPolicy.generation).every(
+      (profile) => profile.maxTokens <= 8_000 && profile.timeoutMs <= 75_000,
+    ),
   );
-  assert.match(
-    source,
-    /const generationSignal[\s\S]*AbortSignal\.timeout\(llmPolicy\.generationTimeoutMs\)/,
-  );
-  assert.equal(source.match(/signal: generationSignal\(/g)?.length, 2);
-  assert.equal(
-    source.match(
-      /signal: AbortSignal\.timeout\(llmPolicy\.generationTimeoutMs\)/g,
-    )?.length,
-    1,
-  );
-  assert.doesNotMatch(source, /AbortSignal\.timeout\(45_000\)/);
 });
 
 void test('validated Brief distinguishes facts/inference and rejects invented citations or output fields', () => {
@@ -254,11 +247,12 @@ void test('provider payload isolates issue text and streams delimiter text with 
     context,
   );
   assert.equal(request.model, 'openai/gpt-5.6-luna');
-  assert.deepEqual(request.reasoning, { effort: 'max', exclude: true });
-  assert.equal(request.max_tokens, 128000);
+  assert.deepEqual(request.reasoning, { effort: 'medium', exclude: true });
+  assert.equal(request.max_tokens, 6000);
+  assert.equal(request.service_tier, 'priority');
   assert.equal(request.stream, true);
   assert.equal(request.provider.allow_fallbacks, true);
-  assert.equal(request.provider.require_parameters, true);
+  assert.equal('require_parameters' in request.provider, false);
   assert.equal(request.provider.data_collection, 'deny');
   assert.equal(request.provider.sort, 'latency');
   assert.equal(request.messages.length, 2);

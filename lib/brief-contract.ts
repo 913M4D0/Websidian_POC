@@ -184,16 +184,16 @@ export function verifyRequestedModel(
   // OpenRouter documents null as accepting all gateway efforts; omission is NOT support.
   const efforts =
     reasoning.supported_efforts === null
-      ? ['max']
+      ? ['medium']
       : reasoning.supported_efforts;
   const effort = Array.isArray(efforts)
-    ? ['max', 'xhigh', 'high', 'medium', 'low', 'minimal'].find((item) =>
+    ? ['medium', 'high', 'low', 'minimal', 'max', 'xhigh'].find((item) =>
         efforts.includes(item),
       )
     : undefined;
   if (!effort)
     throw new BriefError(
-      '요청 모델의 최대 추론 강도를 확인하지 못했습니다.',
+      '요청 모델의 균형 추론 강도를 확인하지 못했습니다.',
       503,
     );
   const topProvider =
@@ -204,7 +204,6 @@ export function verifyRequestedModel(
   return {
     id: configuredId,
     effort,
-    // Use the model's full advertised completion budget as explicitly requested.
     maxTokens:
       typeof advertisedMax === 'number' && advertisedMax > 0
         ? Math.floor(advertisedMax)
@@ -310,10 +309,13 @@ export function buildOpenRouterRequest(
   return {
     model: model.id,
     stream: true,
-    max_tokens: model.maxTokens,
-    reasoning: { effort: model.effort, exclude: true },
+    service_tier: 'priority',
+    max_tokens: Math.min(model.maxTokens, llmPolicy.generation.brief.maxTokens),
+    reasoning: {
+      effort: llmPolicy.generation.brief.effort,
+      exclude: true,
+    },
     provider: {
-      require_parameters: true,
       allow_fallbacks: true,
       data_collection: 'deny',
       sort: 'latency',
@@ -331,7 +333,7 @@ export function buildOpenRouterRequest(
           `The only valid evidence IDs are: ${ids.join(', ')}.`,
           'Return concise Korean plain text, never JSON, Markdown tables, HTML, secrets, hidden reasoning, external references, or tool calls.',
           'Use this delimiter format exactly: <<요약>> one compact paragraph; repeat <<확인사항>> blocks with <<제목>>, <<구분>>(사실 or 추정), <<근거>>(comma-separated allowed IDs), <<내용>>; repeat <<주의사항>> blocks with the same fields; repeat <<다음행동>> for each action; finish with <<끝>>.',
-          'Produce exactly 3 확인사항, at most 2 주의사항, and at most 3 다음행동. Keep the whole final answer compact enough to finish.',
+          'Begin immediately with <<요약>>. Produce exactly 3 확인사항, at most 2 주의사항, and at most 3 다음행동. Keep the entire answer under 3,500 Korean characters and do not try to use the full token budget.',
         ].join('\n'),
       },
       { role: 'user', content: JSON.stringify(context) },

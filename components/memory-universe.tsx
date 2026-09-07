@@ -58,6 +58,7 @@ import type {
   IssueAnalysisResponse,
   IssueTestPlanResponse,
 } from '@/lib/issue-insight';
+import { streamApi } from '@/lib/browser-stream';
 
 type MemoryIndexInfo = {
   total: number;
@@ -119,7 +120,7 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
         : response.status === 429
           ? 'AI 요청이 많습니다. 잠시 후 다시 시도해 주세요.'
           : response.status === 504
-            ? 'AI 최대 추론이 3분 안에 완료되지 않았습니다.'
+            ? 'AI 생성이 제한 시간 안에 완료되지 않았습니다.'
             : response.status >= 500
               ? '서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
               : '요청에 실패했습니다.';
@@ -129,100 +130,6 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   return data as T;
 }
 
-async function streamApi<T>(
-  path: string,
-  body: unknown,
-  hooks: {
-    onDelta?: (text: string) => void;
-    onHeartbeat?: (elapsedMs: number) => void;
-  } = {},
-): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method: 'POST',
-      headers: {
-        Accept: 'text/event-stream',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new Error(
-      '서버와 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.',
-    );
-  }
-  if (!response.ok) {
-    const raw = await response.text();
-    let message = '';
-    try {
-      const payload = JSON.parse(raw) as { error?: unknown };
-      if (typeof payload.error === 'string') message = payload.error;
-    } catch {}
-    throw new Error(message || 'AI 스트리밍 요청을 시작하지 못했습니다.');
-  }
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('AI 스트리밍 응답이 비어 있습니다.');
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let result: T | undefined;
-  let streamError = '';
-  const process = (block: string) => {
-    const lines = block.split('\n');
-    const event =
-      lines
-        .find((line) => line.startsWith('event:'))
-        ?.slice(6)
-        .trim() || 'message';
-    const raw = lines
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice(5).trimStart())
-      .join('\n');
-    if (!raw) return;
-    let payload: unknown;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    if (event === 'delta') {
-      const text =
-        payload && typeof payload === 'object' && 'text' in payload
-          ? payload.text
-          : '';
-      if (typeof text === 'string') hooks.onDelta?.(text);
-    } else if (event === 'heartbeat') {
-      const elapsed =
-        payload && typeof payload === 'object' && 'elapsedMs' in payload
-          ? payload.elapsedMs
-          : 0;
-      if (typeof elapsed === 'number') hooks.onHeartbeat?.(elapsed);
-    } else if (event === 'result') {
-      result = payload as T;
-    } else if (event === 'error') {
-      const message =
-        payload && typeof payload === 'object' && 'error' in payload
-          ? payload.error
-          : '';
-      streamError =
-        typeof message === 'string' && message
-          ? message
-          : 'AI 스트리밍 요청을 완료하지 못했습니다.';
-    }
-  };
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
-    const blocks = buffer.split('\n\n');
-    buffer = blocks.pop() ?? '';
-    for (const block of blocks) process(block);
-  }
-  buffer += decoder.decode();
-  if (buffer.trim()) process(buffer);
-  if (result !== undefined) return result;
-  throw new Error(streamError || 'AI 스트리밍 응답이 완료되지 않았습니다.');
-}
 const shortId = (id: string) =>
   id.startsWith('WS-L-') ? `LOCAL · ${id.slice(-6)}` : id;
 const percent = (n: number) => `${(n * 100).toFixed(1)}%`;
@@ -749,8 +656,8 @@ function InsightDialog({
               {draft
                 ? 'AI 평문을 실시간으로 구성하는 중…'
                 : mode === 'analysis'
-                  ? '최대 추론으로 관련 이력을 분석하는 중…'
-                  : '최대 추론으로 검증 시나리오를 만드는 중…'}
+                  ? '관련 이력을 분석하는 중…'
+                  : '검증 시나리오를 만드는 중…'}
             </strong>
             <span>
               {draft
@@ -1763,7 +1670,7 @@ export function MemoryUniverse() {
                   <small>
                     {llmStatus?.reason || '서버 연결 설정을 확인하고 있습니다.'}
                     <br />
-                    공식 지원 최대 추론 · 근거 없는 단정은 구분
+                    균형 추론 · 빠른 응답 우선 · 근거 없는 단정은 구분
                   </small>
                 </div>
                 <Button
@@ -1773,7 +1680,7 @@ export function MemoryUniverse() {
                 >
                   {briefBusy && <LoaderCircle className="animate-spin" />}
                   {briefBusy
-                    ? '최대 추론 중 · 최대 3분'
+                    ? 'AI 분석 중 · 받는 즉시 표시'
                     : 'AI History Brief 생성'}
                 </Button>
                 {briefFailure && (
@@ -1801,7 +1708,7 @@ export function MemoryUniverse() {
                     <small>
                       {briefDraft
                         ? '구획을 감지해 카드를 채우는 중'
-                        : '최대 추론 중 · 첫 구획을 기다리는 중'}
+                        : '첫 구획을 기다리는 중'}
                       {' · '}
                       {elapsedSeconds(briefElapsedMs)}초 경과
                     </small>
@@ -2393,7 +2300,7 @@ export function MemoryUniverse() {
                       <Network />
                     )}
                     {compilingIds.has(selected.id)
-                      ? '최대 추론 중 · 최대 3분'
+                      ? 'AI 기억을 생성하는 중…'
                       : selectedArtifact?.compileModel === 'source-fallback'
                         ? 'AI 보강 재시도'
                         : selectedArtifact?.compileStatus === 'ready'

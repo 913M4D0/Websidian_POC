@@ -12,6 +12,7 @@ import {
 } from '../lib/delimited-output.ts';
 import { readOpenRouterTextStream } from '../lib/openrouter-stream.ts';
 import { aiResponseStream } from '../lib/ai-response-stream.ts';
+import { streamApi } from '../lib/browser-stream.ts';
 
 function streamingResponse(chunks: string[]) {
   const encoder = new TextEncoder();
@@ -82,6 +83,80 @@ void test('browser SSE flushes a heartbeat before generation completes', async (
   }
   assert.match(rest, /event: delta/);
   assert.match(rest, /event: result/);
+});
+
+void test('coalesced browser SSE is painted progressively before its result resolves', async () => {
+  const content = [
+    '<<요약>>',
+    '가'.repeat(220),
+    '<<확인된맥락>>',
+    '<<제목>>과거 이력',
+    '<<구분>>사실',
+    '<<근거>>WS-001',
+    '<<내용>>확인된 내용',
+    '<<끝>>',
+  ].join('\n');
+  const transport = [
+    `event: delta\r\ndata: ${JSON.stringify({ text: content })}\r\n\r\n`,
+    `event: result\r\ndata: ${JSON.stringify({ content })}\r\n\r\n`,
+  ].join('');
+  let visible = '';
+  const snapshots: string[] = [];
+  const events: string[] = [];
+  const result = await streamApi<{ content: string }>(
+    '/coalesced',
+    {},
+    {
+      onDelta(text) {
+        visible += text;
+        snapshots.push(visible);
+        events.push('paint');
+      },
+    },
+    {
+      fetcher: async () => streamingResponse([transport]),
+      nextFrame: async () => undefined,
+    },
+  );
+  events.push('result');
+  assert.equal(result.content, content);
+  assert.equal(visible, content);
+  assert.ok(snapshots.length > 5);
+  assert.equal(events.at(-2), 'paint');
+  assert.ok(
+    snapshots.some(
+      (snapshot) =>
+        parseDelimitedDisplayProgress(snapshot, 'analysis')?.blocks.length ===
+        1,
+    ),
+  );
+  assert.equal(
+    parseDelimitedDisplay(snapshots.at(-1) || '', 'analysis')?.blocks.length,
+    2,
+  );
+});
+
+void test('result-only fallback text is still replayed across visible frames', async () => {
+  const content = '구획 생성에 실패한 평문도 글자 단위로 보존한다.';
+  const transport = `event: result\ndata: ${JSON.stringify({ content })}\n\n`;
+  let visible = '';
+  let paints = 0;
+  await streamApi<{ content: string }>(
+    '/fallback',
+    {},
+    {
+      onDelta(text) {
+        visible += text;
+        paints += 1;
+      },
+    },
+    {
+      fetcher: async () => streamingResponse([transport]),
+      nextFrame: async () => undefined,
+    },
+  );
+  assert.equal(visible, content);
+  assert.ok(paints > 3);
 });
 
 void test('provider stream keeps already received text when the connection breaks', async () => {
@@ -268,6 +343,13 @@ void test('the UI formats complete delimiters and preserves raw streaming or bro
   assert.match(view, /parseDelimitedDisplayProgress/);
   assert.match(view, /is-streaming/);
   assert.doesNotMatch(view, /dangerouslySetInnerHTML/);
+  const browserStream = readFileSync(
+    new URL('../lib/browser-stream.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(browserStream, /Accept: 'text\/event-stream'/);
+  assert.match(browserStream, /await nextFrame\(\)/);
+  assert.match(browserStream, /completedText\.startsWith\(receivedText\)/);
   assert.match(source, /performance\.now\(\) - startedAt/);
   assert.match(
     source,
@@ -277,7 +359,6 @@ void test('the UI formats complete delimiters and preserves raw streaming or bro
     source,
     /content=\{briefDraft\}[\s\S]*kind="brief"[\s\S]*streaming/,
   );
-  assert.match(source, /Accept: 'text\/event-stream'/);
   assert.doesNotMatch(source, /pendingBirthIds/);
   assert.match(source, /setBirthIssueId\(issue\.id\)/);
   const memoryService = readFileSync(

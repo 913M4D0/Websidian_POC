@@ -34,12 +34,16 @@ export function aiResponseStream<T>(
     );
   };
   const startedAt = Date.now();
-  // A sizeable first event prevents small-chunk buffering at intermediary
-  // gateways; later heartbeats keep both the connection and progress visible.
-  send('heartbeat', { elapsedMs: 0 }, ' '.repeat(2048));
+  // Sites may inspect and buffer a response prefix. Start beyond the common
+  // small-prefix range, then keep enough traffic flowing to flush slow paths.
+  send('heartbeat', { elapsedMs: 0 }, ' '.repeat(32_768));
   const heartbeat = setInterval(
     () =>
-      send('heartbeat', { elapsedMs: Date.now() - startedAt }, ' '.repeat(256)),
+      send(
+        'heartbeat',
+        { elapsedMs: Date.now() - startedAt },
+        ' '.repeat(1_024),
+      ),
     1_000,
   );
   void work({
@@ -69,7 +73,6 @@ export function aiResponseStream<T>(
       'Cache-Control': 'private, no-store, no-transform',
       'Content-Encoding': 'identity',
       Vary: 'Cookie, oai-authenticated-user-id',
-      'X-Accel-Buffering': 'no',
       'X-Content-Type-Options': 'nosniff',
     },
   });

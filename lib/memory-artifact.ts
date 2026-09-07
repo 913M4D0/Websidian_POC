@@ -1,5 +1,6 @@
 import type { Issue } from './issues.ts';
 import type { IssueSearchResult } from './issue-search.ts';
+import { llmPolicy } from './llm-policy.ts';
 
 export type ArtifactStatus = 'not-started' | 'ready' | 'failed';
 export type SemanticNeighbor = { issueId: string; score: number };
@@ -292,10 +293,16 @@ export function buildMemoryCompileRequest(
   return {
     model: model.id,
     stream: true,
-    max_tokens: model.maxTokens,
-    reasoning: { effort: model.effort, exclude: true },
+    service_tier: 'priority',
+    max_tokens: Math.min(
+      model.maxTokens,
+      llmPolicy.generation.memory.maxTokens,
+    ),
+    reasoning: {
+      effort: llmPolicy.generation.memory.effort,
+      exclude: true,
+    },
     provider: {
-      require_parameters: true,
       allow_fallbacks: true,
       data_collection: 'deny',
       sort: 'latency',
@@ -311,7 +318,7 @@ export function buildMemoryCompileRequest(
           'Facets are free-form observations; do not force a fixed taxonomy.',
           'Return concise Korean plain text only, never JSON, Markdown tables, HTML, secrets, hidden reasoning, or tool calls.',
           'Use this delimiter format exactly: <<요약>> at most 2 sentences; <<핵심어>> at most 8 short lines; at most 4 <<분류>> blocks containing <<이름>> and <<값>> with at most 4 lines; finish with <<끝>>.',
-          'Keep the whole final answer compact enough to finish within the available output budget.',
+          'Begin immediately with <<요약>>. Keep the entire answer under 2,500 Korean characters and do not try to use the full token budget.',
         ].join('\n'),
       },
       { role: 'user', content: memoryDocument(issue) },
