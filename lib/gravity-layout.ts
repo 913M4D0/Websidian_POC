@@ -111,6 +111,12 @@ export function rotateNebulaPosition(
   };
 }
 
+/** A slow, bounded vertical wave layered on top of the dominant orbit. */
+export function nebulaVerticalOffset(issueId: string, angle: number) {
+  const phase = noise(issueId, 'vertical-orbit') * Math.PI * 2;
+  return Math.sin(angle * 3 + phase) * 4.2;
+}
+
 /**
  * Stable five-arm spherical issue nebula. Time expands from the centre while
  * each team follows a helical path around a sphere; bounded force relaxation

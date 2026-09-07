@@ -1926,7 +1926,7 @@ export function MemoryUniverse() {
               <span>
                 {gravityRootId && gravity
                   ? `직접 ${gravity.directCount} · 트리 ${gravity.treeCount} · 배경 ${gravity.sedimentCount}`
-                  : '느린 공전 · 확대 · 노드 드래그'}
+                  : '느린 공전 · 상하 파동 · 확대 · 노드 드래그'}
               </span>
             </div>
             <div className="graph-settings">

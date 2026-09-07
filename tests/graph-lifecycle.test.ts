@@ -10,6 +10,7 @@ import {
 } from '../lib/memory-graph.ts';
 import {
   createNebulaLayout,
+  nebulaVerticalOffset,
   rotateNebulaPosition,
 } from '../lib/gravity-layout.ts';
 
@@ -278,6 +279,19 @@ void test('overview orbit target is rigid and preserves the nebula volume', () =
   assert.deepEqual(rotateNebulaPosition(pivot, angle, pivot), pivot);
   assert.equal(rotatedLeft.y, left.y);
   assert.deepEqual(rotateNebulaPosition(left, 0), left);
+});
+
+void test('overview vertical wave is deterministic, bounded, and periodic', () => {
+  const issueId = 'WS-079';
+  const angle = Math.PI * 0.41;
+  const offset = nebulaVerticalOffset(issueId, angle);
+  assert.equal(offset, nebulaVerticalOffset(issueId, angle));
+  assert.ok(Math.abs(offset) <= 4.2);
+  assert.ok(
+    Math.abs(offset - nebulaVerticalOffset(issueId, angle + Math.PI * 2)) <
+      1e-10,
+  );
+  assert.notEqual(offset, nebulaVerticalOffset(issueId, angle + Math.PI / 6));
 });
 
 void test('recorded completion evidence survives the edge budget without implying similarity or causality', () => {

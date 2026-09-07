@@ -5,6 +5,7 @@ import {
   createGravityLayout,
   createNebulaLayout,
   memoryLinkKey,
+  nebulaVerticalOffset,
   rotateNebulaPosition,
   type GraphPosition,
   type GravityLayout,
@@ -702,6 +703,7 @@ export function GraphStage({
             const anchor = nebulaPositions.get(node.id);
             if (!anchor) continue;
             const target = rotateNebulaPosition(anchor, rotation.angle);
+            target.y += nebulaVerticalOffset(node.id, rotation.angle);
             const spring = 0.022;
             node.vx = (node.vx ?? 0) + (target.x - node.x) * spring * alpha;
             node.vy = (node.vy ?? 0) + (target.y - node.y) * spring * alpha;
@@ -1757,10 +1759,18 @@ export function GraphStage({
     } else {
       onGravityChangeRef.current(null);
       targets = new Map(
-        [...nebulaPositionsRef.current].map(([id, position]) => [
-          id,
-          rotateNebulaPosition(position, overviewRotationRef.current.angle),
-        ]),
+        [...nebulaPositionsRef.current].map(([id, position]) => {
+          const target = rotateNebulaPosition(
+            position,
+            overviewRotationRef.current.angle,
+          );
+          if (!reducedMotionRef.current)
+            target.y += nebulaVerticalOffset(
+              id,
+              overviewRotationRef.current.angle,
+            );
+          return [id, target];
+        }),
       );
       const overviewCamera = camera.clone();
       if (gravityCameraRef.current) {
