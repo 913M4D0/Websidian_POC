@@ -136,7 +136,7 @@ export function buildHistory(raw: HistoryInput, issues: Issue[]): IssueHistory {
       ...(input.pinnedIds ?? []),
       ...ranks
         .filter((rank) => rank.score > 0)
-        .slice(0, 8)
+        .slice(0, 5)
         .map((rank) => rank.issueId),
     ]),
   ];

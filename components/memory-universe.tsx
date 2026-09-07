@@ -10,18 +10,20 @@ import {
 } from 'react';
 import {
   ArrowUpRight,
+  BrainCircuit,
   Check,
   ChevronRight,
   CircleDot,
   FileText,
+  FlaskConical,
   GitBranch,
   LoaderCircle,
   Maximize2,
   Network,
-  Plug,
   Plus,
   RotateCcw,
   Search,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { GraphStage, type GravitySummary } from '@/components/issue-graph';
@@ -39,7 +41,6 @@ import {
   createMemoryGraph,
   colorFor,
   issueNodeId,
-  linkEndpointId,
   type MemoryNode,
 } from '@/lib/memory-graph';
 import type { Issue } from '@/lib/issues';
@@ -48,6 +49,15 @@ import { llmPolicy } from '@/lib/llm-policy';
 import type { IssueHistory } from '@/lib/issue-history';
 import type { BriefResponse, LlmStatus } from '@/lib/brief-contract';
 import type { MemoryArtifactClient } from '@/lib/memory-artifact';
+import {
+  demoResolutionDefaults,
+  representativeScenarios,
+} from '@/lib/demo-scenarios';
+import type {
+  InsightClaim,
+  IssueAnalysisResponse,
+  IssueTestPlanResponse,
+} from '@/lib/issue-insight';
 
 type MemoryIndexInfo = {
   total: number;
@@ -113,17 +123,16 @@ function IssueForm({
   issue,
   onSaved,
   onClose,
-  evidenceIds,
 }: {
   mode: 'create' | 'resolve';
   issue: Issue | null;
   onSaved: (issue: Issue) => void;
   onClose: () => void;
-  evidenceIds: string[];
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const requestId = useRef<string | null>(null);
+  const demoDefaults = issue ? demoResolutionDefaults(issue.id) : null;
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving) return;
@@ -163,7 +172,6 @@ function IssueForm({
           tags: splitTags(fields.get('tags')),
           attributes,
           resources: parseResources(fields.get('resources')),
-          evidenceIssueIds: evidenceIds,
         };
       }
       const result = await api<{ issue: Issue }>(
@@ -283,6 +291,9 @@ function IssueForm({
             <>
               <div className="form-context">
                 {shortId(issue!.id)} · {issue!.title}
+                {demoDefaults && (
+                  <span>시연용 처리 내용이 미리 입력되어 있습니다.</span>
+                )}
               </div>
               <label htmlFor="issue-body">
                 처리 내용
@@ -292,6 +303,7 @@ function IssueForm({
                   required
                   rows={6}
                   maxLength={20000}
+                  defaultValue={demoDefaults?.body}
                   placeholder="확인한 원인, 판단 근거, 조치, 검증 결과를 기록해 주세요."
                 />
               </label>
@@ -302,6 +314,7 @@ function IssueForm({
                   name="outcome"
                   required
                   maxLength={240}
+                  defaultValue={demoDefaults?.outcome}
                   placeholder="예: 기존 정책 안내 후 종료 / 공통 절차 적용"
                 />
               </label>
@@ -311,6 +324,7 @@ function IssueForm({
                   id="issue-resources"
                   name="resources"
                   rows={2}
+                  defaultValue={demoDefaults?.resources}
                   placeholder="자료 식별자 | 자료명 | 유형"
                 />
                 <small>
@@ -318,8 +332,8 @@ function IssueForm({
                 </small>
               </label>
               <small>
-                선택한 과거 근거 {evidenceIds.length}건을 처리 참고 기록으로
-                함께 보관합니다.
+                관련 이력은 서버가 같은 기준으로 다시 수집해 처리 참고 기록으로
+                보관합니다.
               </small>
             </>
           )}
@@ -328,7 +342,7 @@ function IssueForm({
             <Input
               id="issue-tags"
               name="tags"
-              defaultValue={issue?.tags.join(', ') || ''}
+              defaultValue={demoDefaults?.tags || issue?.tags.join(', ') || ''}
               placeholder="쉼표로 구분 · 서로 다른 표현이어도 괜찮습니다"
             />
           </label>
@@ -409,9 +423,10 @@ function IntegrationDialog({
         authenticated: boolean;
         mode: string;
       }>('/api/integrations/github/import', { repository });
-      const summary = `${result.repository} · 확인 ${result.found}건 · 신규 ${result.imported}건 · 기존 연결 ${result.linked}건 · 보존 ${result.unchanged}건${result.skipped ? ` · 제외 ${result.skipped}건` : ''}`;
-      setMessage(summary);
-      await onImported(summary);
+      const duplicateCount = result.linked + result.unchanged;
+      const friendly = `${result.repository} · 새로 가져옴 ${result.imported}건 · 이미 등록됨 ${duplicateCount}건${result.skipped ? ` · 제외 ${result.skipped}건` : ''}`;
+      setMessage(friendly);
+      await onImported(friendly);
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -545,6 +560,176 @@ function IntegrationDialog({
   );
 }
 
+function InsightDialog({
+  mode,
+  root,
+  analysis,
+  testPlan,
+  busy,
+  onMode,
+  onClose,
+  onEvidence,
+}: {
+  mode: 'analysis' | 'test-cases';
+  root: Issue;
+  analysis: IssueAnalysisResponse | null;
+  testPlan: IssueTestPlanResponse | null;
+  busy: 'analysis' | 'test-cases' | null;
+  onMode: (mode: 'analysis' | 'test-cases') => void;
+  onClose: () => void;
+  onEvidence: (id: string) => void;
+}) {
+  const claim = (item: InsightClaim, index: number) => (
+    <article className="insight-claim" key={`${item.title}-${index}`}>
+      <small>
+        {item.kind === 'fact' ? '확인된 사실' : '가능성이 높은 해석'}
+      </small>
+      <h4>{item.title}</h4>
+      <p>{item.text}</p>
+      <div className="insight-citations">
+        {item.evidenceIds.map((id) => (
+          <button key={id} onClick={() => onEvidence(id)}>
+            {shortId(id)} 원문 보기
+          </button>
+        ))}
+      </div>
+    </article>
+  );
+  const current = mode === 'analysis' ? analysis : testPlan;
+  return (
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent
+        className="insight-dialog max-h-[90dvh] overflow-y-auto sm:max-w-[760px]"
+        showCloseButton={!busy}
+      >
+        <DialogHeader>
+          <DialogTitle>
+            {mode === 'analysis' ? '이슈 분석 결과' : '테스트 케이스'}
+          </DialogTitle>
+          <DialogDescription>
+            분석 기준 · {shortId(root.id)} · {root.title}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="insight-tabs" aria-label="AI 결과 전환">
+          <button
+            aria-pressed={mode === 'analysis'}
+            onClick={() => onMode('analysis')}
+          >
+            <BrainCircuit /> 분석 결과
+          </button>
+          <button
+            aria-pressed={mode === 'test-cases'}
+            onClick={() => onMode('test-cases')}
+          >
+            <FlaskConical /> 테스트 케이스
+          </button>
+        </div>
+        {busy === mode && (
+          <div className="insight-loading">
+            <LoaderCircle className="animate-spin" />
+            <strong>
+              {mode === 'analysis'
+                ? '관련 이력을 분석하는 중…'
+                : '검증 시나리오를 만드는 중…'}
+            </strong>
+            <span>
+              처음 선택한 이슈와 연결된 완료 이력을 자동으로 확인합니다.
+            </span>
+          </div>
+        )}
+        {!busy && !current && (
+          <div className="insight-empty">
+            아직 생성하지 않은 결과입니다. 그래프 위의 버튼으로 생성해 주세요.
+          </div>
+        )}
+        {mode === 'analysis' && analysis && busy !== mode && (
+          <div className="insight-result">
+            <section className="insight-summary">
+              <span>한눈에 보기</span>
+              <p>{analysis.analysis.summary}</p>
+            </section>
+            <h3>확인된 맥락</h3>
+            {analysis.analysis.findings.map(claim)}
+            {!!analysis.analysis.risks.length && <h3>주의할 위험</h3>}
+            {analysis.analysis.risks.map(claim)}
+            <h3>권장 처리 방향</h3>
+            {analysis.analysis.recommendations.map(claim)}
+            {!!analysis.analysis.openQuestions.length && (
+              <>
+                <h3>추가 확인 사항</h3>
+                <ol className="insight-questions">
+                  {analysis.analysis.openQuestions.map((question) => (
+                    <li key={question}>{question}</li>
+                  ))}
+                </ol>
+              </>
+            )}
+          </div>
+        )}
+        {mode === 'test-cases' && testPlan && busy !== mode && (
+          <div className="insight-result">
+            <section className="insight-summary">
+              <span>테스트 전략</span>
+              <p>{testPlan.testPlan.strategy}</p>
+            </section>
+            <h3>생성된 테스트 케이스</h3>
+            {testPlan.testPlan.cases.map((testCase) => (
+              <article className="test-case" key={testCase.id}>
+                <div>
+                  <span>{testCase.id}</span>
+                  <b data-priority={testCase.priority}>
+                    {testCase.priority === 'critical'
+                      ? '필수'
+                      : testCase.priority === 'high'
+                        ? '높음'
+                        : '보통'}
+                  </b>
+                </div>
+                <h4>{testCase.title}</h4>
+                {!!testCase.preconditions.length && (
+                  <>
+                    <h5>사전 조건</h5>
+                    <ul>
+                      {testCase.preconditions.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <h5>실행 단계</h5>
+                <ol>
+                  {testCase.steps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+                <h5>기대 결과</h5>
+                <p>{testCase.expected}</p>
+                <div className="insight-citations">
+                  {testCase.evidenceIds.map((id) => (
+                    <button key={id} onClick={() => onEvidence(id)}>
+                      {shortId(id)} 원문 보기
+                    </button>
+                  ))}
+                </div>
+              </article>
+            ))}
+            {!!testPlan.testPlan.regressionScope.length && (
+              <>
+                <h3>회귀 확인 범위</h3>
+                {testPlan.testPlan.regressionScope.map(claim)}
+              </>
+            )}
+          </div>
+        )}
+        <p className="insight-disclosure">
+          GPT 5.6 Luna가 서버에서 자동 수집한 이력만 사용합니다. 결과는 원본
+          이슈를 바꾸지 않으며, 실제 조치 전 인용된 기록을 확인해야 합니다.
+        </p>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function MemoryUniverse() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [artifacts, setArtifacts] = useState<MemoryArtifactClient[]>([]);
@@ -561,12 +746,12 @@ export function MemoryUniverse() {
   const [graphReady, setGraphReady] = useState(false);
   const [graphError, setGraphError] = useState(false);
   const [highlightStrength, setHighlightStrength] = useState(0.7);
-  const [neighbors, setNeighbors] = useState(4);
-  const [neighborDraft, setNeighborDraft] = useState(4);
+  const [neighbors, setNeighbors] = useState(5);
+  const [neighborDraft, setNeighborDraft] = useState(5);
   const [tab, setTab] = useState<'issues' | 'memories' | 'search' | 'brief'>(
     'issues',
   );
-  const [activeIssueId, setActiveIssueId] = useState<string | null>(null);
+  const [contextRootId, setContextRootId] = useState<string | null>(null);
   const [listFilter, setListFilter] = useState('');
   const [history, setHistory] = useState<IssueHistory | null>(null);
   const [brief, setBrief] = useState<BriefResponse | null>(null);
@@ -585,8 +770,23 @@ export function MemoryUniverse() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [integrationOpen, setIntegrationOpen] = useState(false);
   const [compilingIds, setCompilingIds] = useState<Set<string>>(new Set());
+  const [analysis, setAnalysis] = useState<IssueAnalysisResponse | null>(null);
+  const [testPlan, setTestPlan] = useState<IssueTestPlanResponse | null>(null);
+  const [insightMode, setInsightMode] = useState<
+    'analysis' | 'test-cases' | null
+  >(null);
+  const [insightBusy, setInsightBusy] = useState<
+    'analysis' | 'test-cases' | null
+  >(null);
+  const [contextBusy, setContextBusy] = useState(false);
+  const [pendingBirthIds, setPendingBirthIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [birthIssueId, setBirthIssueId] = useState<string | null>(null);
+  const [birthVersion, setBirthVersion] = useState(0);
   const searchSequence = useRef(0);
   const briefSequence = useRef(0);
+  const contextSequence = useRef(0);
 
   const load = useCallback(async () => {
     try {
@@ -601,19 +801,28 @@ export function MemoryUniverse() {
       setGraphError(false);
       setSelectedId(null);
       setGravityRootId(null);
-      setActiveIssueId(null);
+      setContextRootId(null);
       setHistory(null);
       setBrief(null);
       setPinnedIds([]);
       briefSequence.current++;
       setResults(null);
       setSearching(false);
+      setAnalysis(null);
+      setTestPlan(null);
+      setInsightMode(null);
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!birthIssueId) return;
+    const timer = window.setTimeout(() => setBirthIssueId(null), 2400);
+    return () => window.clearTimeout(timer);
+  }, [birthIssueId, birthVersion]);
   useEffect(() => {
     let active = true;
     void api<IssuesPayload>('/api/issues')
@@ -647,9 +856,13 @@ export function MemoryUniverse() {
     };
   }, []);
 
+  const graphIssues = useMemo(
+    () => issues.filter((issue) => !pendingBirthIds.has(issue.id)),
+    [issues, pendingBirthIds],
+  );
   const graph = useMemo(
-    () => createMemoryGraph(issues, neighbors, activeIssueId, artifacts),
-    [issues, neighbors, activeIssueId, artifacts],
+    () => createMemoryGraph(graphIssues, neighbors, contextRootId, artifacts),
+    [graphIssues, neighbors, contextRootId, artifacts],
   );
   const byId = useMemo(
     () => new Map(issues.map((issue) => [issue.id, issue])),
@@ -661,7 +874,7 @@ export function MemoryUniverse() {
     [artifacts],
   );
   const selectedArtifact = selected ? artifactById.get(selected.id) : undefined;
-  const activeIssue = activeIssueId ? byId.get(activeIssueId) : undefined;
+  const contextRoot = contextRootId ? byId.get(contextRootId) : undefined;
   const selectedNodeId = selected ? issueNodeId(selected) : null;
   const memoryCount = issues.filter(
     (issue) => issue.status === 'closed',
@@ -702,95 +915,85 @@ export function MemoryUniverse() {
     () => new Map((results || []).map((result) => [result.issueId, result])),
     [results],
   );
-  const adjacent = (() => {
-    if (!selectedNodeId) return [];
-    return graph.links
-      .filter(
-        (link) =>
-          linkEndpointId(link.source) === selectedNodeId ||
-          linkEndpointId(link.target) === selectedNodeId,
-      )
-      .map((link) => ({
-        link,
-        issue: byId.get(
-          (linkEndpointId(link.source) === selectedNodeId
-            ? linkEndpointId(link.target)
-            : linkEndpointId(link.source)
-          ).replace(/^(active|memory):/, ''),
-        )!,
-      }))
-      .sort((a, b) => b.link.score - a.link.score);
-  })();
-  const select = useCallback((node: MemoryNode | null) => {
-    setSelectedId(node?.issueId ?? null);
-    setProgressText('');
-    if (node) {
-      setGravityRootId((root) => root || node.id);
-      setFocusVersion((version) => version + 1);
-    } else setGravityRootId(null);
-  }, []);
-  const selectIssue = (issue: Issue) => {
-    if (issue.status === 'open') {
-      if (activeIssueId !== issue.id) {
-        searchSequence.current++;
-        briefSequence.current++;
-        setSearching(false);
-        setHistory(null);
-        setBrief(null);
-        setResults(null);
-        setPinnedIds([]);
-        setSubmittedQuery('');
-        setQuery('');
-        setReferenceId(issue.id);
-        setGraphReady(false);
-        setGraphError(false);
-      }
-      setActiveIssueId(issue.id);
-      setSelectedId(issue.id);
-      setGravityRootId(issueNodeId(issue));
-      setFocusVersion((value) => value + 1);
-      setProgressText('');
-    } else {
-      const node = graph.nodes.find((node) => node.issueId === issue.id);
-      if (node) select(node);
+  async function loadContext(issue: Issue) {
+    const sequence = ++contextSequence.current;
+    setContextBusy(true);
+    setHistory(null);
+    try {
+      const result = await api<IssueHistory>('/api/history', {
+        query: issueText(issue).slice(0, 6000),
+        referenceId: issue.id,
+      });
+      if (sequence === contextSequence.current) setHistory(result);
+    } catch (cause) {
+      if (sequence === contextSequence.current)
+        setError((cause as Error).message);
+    } finally {
+      if (sequence === contextSequence.current) setContextBusy(false);
     }
+  }
+  function inspectIssue(issue: Issue) {
+    setSelectedId(issue.id);
+    setProgressText('');
+    setFocusVersion((value) => value + 1);
     if (window.innerWidth <= 680) setSidebarOpen(false);
+  }
+  function beginContext(issue: Issue) {
+    contextSequence.current++;
+    setContextRootId(issue.id);
+    setSelectedId(issue.id);
+    setGravityRootId(issueNodeId(issue));
+    setFocusVersion((value) => value + 1);
+    setProgressText('');
+    setHistory(null);
+    setAnalysis(null);
+    setTestPlan(null);
+    setInsightMode(null);
+    setReferenceId(issue.id);
+    setGraphReady(false);
+    setGraphError(false);
+    void loadContext(issue);
+    if (window.innerWidth <= 680) setSidebarOpen(false);
+  }
+  const select = (node: MemoryNode | null) => {
+    if (!node) {
+      setSelectedId(null);
+      setGravityRootId(null);
+      setContextRootId(null);
+      setHistory(null);
+      return;
+    }
+    const issue = byId.get(node.issueId);
+    if (!issue) return;
+    if (gravityRootId) inspectIssue(issue);
+    else beginContext(issue);
   };
+  const selectIssue = (issue: Issue) => beginContext(issue);
   function resetView() {
+    contextSequence.current++;
     setSelectedId(null);
     setGravityRootId(null);
     setResetVersion((value) => value + 1);
-    setActiveIssueId(null);
+    setContextRootId(null);
+    setHistory(null);
+    setInsightMode(null);
   }
-  async function search(
-    text = query,
-    excludeId = referenceId,
-    evidencePins = pinnedIds,
-  ) {
+  async function search(text = query, excludeId = referenceId) {
     if (!text.trim()) return;
     const sequence = ++searchSequence.current;
     setSearching(true);
-    setHistory(null);
     setBrief(null);
     briefSequence.current++;
     setError('');
     setTab('search');
     setSidebarOpen(true);
     try {
-      const [response, context] = await Promise.all([
-        api<{ results: IssueSearchResult[] }>('/api/search', {
-          query: text,
-          excludeId,
-        }),
-        api<IssueHistory>('/api/history', {
-          query: text,
-          referenceId: excludeId,
-          pinnedIds: evidencePins.filter((id) => id !== excludeId),
-        }),
-      ]);
+      const response = await api<{ results: IssueSearchResult[] }>(
+        '/api/search',
+        { query: text, excludeId },
+      );
       if (sequence !== searchSequence.current) return;
       setResults(response.results);
-      setHistory(context);
       setSubmittedQuery(text);
       setLimit(24);
     } catch (cause) {
@@ -801,16 +1004,7 @@ export function MemoryUniverse() {
     }
   }
   function explore(issue: Issue) {
-    const evidencePins =
-      issue.status === 'open' && activeIssueId !== issue.id
-        ? []
-        : pinnedIds.filter((id) => id !== issue.id);
-    setPinnedIds(evidencePins);
-    if (issue.status === 'open') selectIssue(issue);
-    const text = issueText(issue).slice(0, 6000);
-    setQuery(text);
-    setReferenceId(issue.id);
-    void search(text, issue.id, evidencePins);
+    beginContext(issue);
   }
   function saved(issue: Issue) {
     searchSequence.current += 1;
@@ -824,9 +1018,17 @@ export function MemoryUniverse() {
     setGraphReady(false);
     setGraphError(false);
     setSelectedId(issue.id);
-    setActiveIssueId(issue.status === 'open' ? issue.id : null);
-    setGravityRootId(issueNodeId(issue));
-    setFocusVersion((value) => value + 1);
+    if (issue.status === 'closed') {
+      setPendingBirthIds((current) => new Set(current).add(issue.id));
+      setContextRootId(null);
+      setGravityRootId(null);
+      setResetVersion((value) => value + 1);
+    } else {
+      setContextRootId(issue.id);
+      setGravityRootId(issueNodeId(issue));
+      setFocusVersion((value) => value + 1);
+      void loadContext(issue);
+    }
     setTab(issue.status === 'open' ? 'issues' : 'memories');
     setListFilter('');
     setResults(null);
@@ -840,10 +1042,10 @@ export function MemoryUniverse() {
     briefSequence.current++;
     setNotice(
       issue.status === 'closed'
-        ? '처리 완료. 진행 노드를 제거하고 완료 기억 노드를 생성했습니다. 원문·처리 이력·참고 근거는 그대로 보관됩니다.'
-        : '신규 이슈가 접수됐습니다. 이슈를 확인하고 과거 히스토리를 탐색해 보세요.',
+        ? '처리 완료. 진행 노드를 제거하고 AI가 정식 기억을 만드는 중입니다.'
+        : '신규 이슈가 접수됐습니다. 관련 이력이 자동으로 정렬됩니다.',
     );
-    if (issue.status === 'closed') void compileMemory(issue.id);
+    if (issue.status === 'closed') void compileMemory(issue.id, true);
   }
   function togglePin(id: string) {
     if (byId.get(id)?.status !== 'closed' || id === referenceId) return;
@@ -881,7 +1083,12 @@ export function MemoryUniverse() {
       );
       setDataVersion((value) => value + 1);
       setGraphReady(false);
-      setHistory(null);
+      if (contextRootId === issueId) {
+        setHistory(null);
+        setAnalysis(null);
+        setTestPlan(null);
+        void loadContext(data.issue);
+      }
       setBrief(null);
       setResults(null);
       searchSequence.current++;
@@ -906,7 +1113,7 @@ export function MemoryUniverse() {
         : { ...data, embedding: data.embedding },
     );
   }
-  async function compileMemory(issueId: string) {
+  async function compileMemory(issueId: string, revealBirth = false) {
     if (compilingIds.has(issueId)) return;
     setCompilingIds((current) => new Set(current).add(issueId));
     try {
@@ -920,12 +1127,29 @@ export function MemoryUniverse() {
         result.artifact,
       ]);
       await refreshMemoryArtifacts();
-      setNotice(
-        result.warning ||
-          (result.reused
-            ? 'AI 기억과 의미 연결이 이미 최신 상태입니다.'
-            : 'GPT 5.6 Luna가 검색용 기억을 컴파일하고 의미 연결을 갱신했습니다.'),
-      );
+      setDataVersion((value) => value + 1);
+      setGraphReady(false);
+      if (revealBirth) {
+        setPendingBirthIds((current) => {
+          const next = new Set(current);
+          next.delete(issueId);
+          return next;
+        });
+        setBirthIssueId(issueId);
+        setBirthVersion((value) => value + 1);
+        setSelectedId(issueId);
+        setNotice(
+          result.warning ||
+            'AI가 처리 내용을 정리해 정식 기억 노드로 만들었습니다.',
+        );
+      } else {
+        setNotice(
+          result.warning ||
+            (result.reused
+              ? 'AI 기억과 의미 연결이 이미 최신 상태입니다.'
+              : 'GPT 5.6 Luna가 검색용 기억을 컴파일하고 의미 연결을 갱신했습니다.'),
+        );
+      }
     } catch (cause) {
       try {
         await refreshMemoryArtifacts();
@@ -933,6 +1157,15 @@ export function MemoryUniverse() {
       setError(
         `${(cause as Error).message} 이슈 완료와 원문은 보존됐으며 다시 시도할 수 있습니다.`,
       );
+      if (revealBirth) {
+        setPendingBirthIds((current) => {
+          const next = new Set(current);
+          next.delete(issueId);
+          return next;
+        });
+        setDataVersion((value) => value + 1);
+        setGraphReady(false);
+      }
     } finally {
       setCompilingIds((current) => {
         const next = new Set(current);
@@ -975,6 +1208,32 @@ export function MemoryUniverse() {
       setBriefBusy(false);
     }
   }
+  async function generateInsight(kind: 'analysis' | 'test-cases') {
+    if (!contextRoot || insightBusy || !llmStatus?.ready) return;
+    setInsightMode(kind);
+    setInsightBusy(kind);
+    setError('');
+    try {
+      if (kind === 'analysis') {
+        const response = await api<IssueAnalysisResponse>(
+          `/api/issues/${encodeURIComponent(contextRoot.id)}/analyze`,
+          {},
+        );
+        setAnalysis(response);
+      } else {
+        const response = await api<IssueTestPlanResponse>(
+          `/api/issues/${encodeURIComponent(contextRoot.id)}/test-cases`,
+          {},
+        );
+        setTestPlan(response);
+      }
+    } catch (cause) {
+      setError((cause as Error).message);
+      setInsightMode(null);
+    } finally {
+      setInsightBusy(null);
+    }
+  }
   function commitNeighbors() {
     if (neighborDraft === neighbors) return;
     setNeighbors(neighborDraft);
@@ -1006,7 +1265,7 @@ export function MemoryUniverse() {
             disabled={loading || Boolean(error && !issues.length)}
             onClick={() => setIntegrationOpen(true)}
           >
-            <Plug /> 연결 · AI
+            <GitBranch /> GitHub 가져오기
           </Button>
           <Button
             size="sm"
@@ -1017,38 +1276,6 @@ export function MemoryUniverse() {
           </Button>
         </div>
       </header>
-      <div className="workflow-strip" aria-label="이슈 처리 흐름">
-        <button
-          onClick={() => {
-            setTab('issues');
-            setSidebarOpen(true);
-          }}
-        >
-          <span>01</span> 신규 이슈 <b>{openCount}</b>
-        </button>
-        <ChevronRight size={13} />
-        <button
-          onClick={() => {
-            if (activeIssue) explore(activeIssue);
-            else {
-              setTab('search');
-              setSidebarOpen(true);
-            }
-          }}
-        >
-          <span>02</span> 확인 · 히스토리 탐색
-        </button>
-        <ChevronRight size={13} />
-        <button
-          onClick={() => {
-            setTab('memories');
-            setSidebarOpen(true);
-          }}
-        >
-          <span>03</span> 완료된 기억 <b>{memoryCount}</b>
-        </button>
-        <small>일이 끝나면, 다음 일을 위한 기억이 됩니다.</small>
-      </div>
       <div className="workbench-body">
         {sidebarOpen && (
           <aside className="issue-sidebar">
@@ -1064,8 +1291,7 @@ export function MemoryUniverse() {
                 [
                   ['issues', '진행'],
                   ['memories', '기억'],
-                  ['search', '탐색'],
-                  ['brief', 'Brief'],
+                  ['search', '검색'],
                 ] as const
               ).map(([value, label]) => (
                 <button
@@ -1079,9 +1305,6 @@ export function MemoryUniverse() {
                   {label}
                   {value === 'issues' && <span>{openCount}</span>}
                   {value === 'memories' && <span>{memoryCount}</span>}
-                  {value === 'brief' && pinnedIds.length > 0 && (
-                    <span>{pinnedIds.length}</span>
-                  )}
                 </button>
               ))}
             </div>
@@ -1110,7 +1333,6 @@ export function MemoryUniverse() {
                           searchSequence.current++;
                           briefSequence.current++;
                           setSearching(false);
-                          setHistory(null);
                           setBrief(null);
                           setResults(null);
                           setSubmittedQuery('');
@@ -1161,7 +1383,6 @@ export function MemoryUniverse() {
                         setSubmittedQuery('');
                         setReferenceId(undefined);
                         setTab('issues');
-                        setHistory(null);
                         setBrief(null);
                         briefSequence.current++;
                       }}
@@ -1185,15 +1406,6 @@ export function MemoryUniverse() {
                       ? '의미·문장·자료의 혼합 관련도'
                       : '문장·자료 일치도'}
                     이며, 정답 확률이 아닙니다.
-                    {history && (
-                      <button
-                        className="history-report-link"
-                        onClick={() => setTab('brief')}
-                      >
-                        수집된 근거 {history.evidence.length}건 확인{' '}
-                        <ArrowUpRight size={12} />
-                      </button>
-                    )}
                     {results.every((result) => result.score === 0) && (
                       <strong>
                         일치하는 기록이 없습니다. 전체 이슈는 아래에서 확인할 수
@@ -1225,7 +1437,14 @@ export function MemoryUniverse() {
                         aria-pressed={selectedId === issue.id}
                       >
                         <span className="issue-row-meta">
-                          <span style={{ color: colorFor(issue.team) }}>
+                          <span
+                            style={{
+                              color:
+                                issue.status === 'open'
+                                  ? '#d7ba7d'
+                                  : colorFor(issue.team),
+                            }}
+                          >
                             <CircleDot size={12} />
                             {shortId(issue.id)}
                           </span>
@@ -1236,6 +1455,16 @@ export function MemoryUniverse() {
                           </span>
                         </span>
                         <strong>{issue.title}</strong>
+                        {issue.id in representativeScenarios && (
+                          <small className="representative-row">
+                            대표 사례 ·{' '}
+                            {
+                              representativeScenarios[
+                                issue.id as keyof typeof representativeScenarios
+                              ]
+                            }
+                          </small>
+                        )}
                         <span className="issue-row-bottom">
                           <span>{issue.team}</span>
                           <span
@@ -1298,7 +1527,7 @@ export function MemoryUniverse() {
                     <Button
                       size="sm"
                       onClick={() => {
-                        if (activeIssue) explore(activeIssue);
+                        if (contextRoot) explore(contextRoot);
                         else {
                           setTab('search');
                           setSidebarOpen(true);
@@ -1518,7 +1747,7 @@ export function MemoryUniverse() {
         >
           {graph.nodes.length > 0 && (
             <GraphStage
-              key={`${dataVersion}:${neighbors}:${activeIssueId ?? 'nebula'}`}
+              key={`${dataVersion}:${neighbors}:${contextRootId ?? 'nebula'}:${birthVersion}`}
               nodes={graph.nodes}
               links={graph.links}
               selectedId={selectedNodeId}
@@ -1528,6 +1757,8 @@ export function MemoryUniverse() {
               highlightedIds={highlightedIds}
               viewResetVersion={resetVersion}
               selectionFocusVersion={focusVersion}
+              birthNodeId={birthIssueId ? `memory:${birthIssueId}` : null}
+              birthVersion={birthVersion}
               onSelect={select}
               onGravityChange={setGravity}
               onReady={() => setGraphReady(true)}
@@ -1537,12 +1768,12 @@ export function MemoryUniverse() {
           <div className="graph-toolbar" data-graph-obstruction="top">
             <div>
               <span className="section-kicker">
-                {gravityRootId ? 'CONTEXT TREE' : 'MEMORY UNIVERSE'}
+                {gravityRootId ? '관련 이슈 흐름' : '전체 이슈 성운'}
               </span>
               <h1>
                 {gravityRootId
-                  ? '한 이슈에서 이어지는 기록'
-                  : '완료된 일이, 다음 일의 기억으로.'}
+                  ? '처음 고른 이슈에서 이어지는 기록'
+                  : '모든 이슈가, 하나의 기억 우주로.'}
               </h1>
             </div>
             <div className="graph-tool-actions">
@@ -1573,21 +1804,48 @@ export function MemoryUniverse() {
               </Button>
             </div>
           </div>
-          {activeIssue?.status === 'open' && (
-            <div className="active-issue-bar" data-graph-obstruction="top">
-              <span className="active-indicator" />
-              <button onClick={() => selectIssue(activeIssue)}>
-                <small>현재 확인 중 · {shortId(activeIssue.id)}</small>
-                <strong>{activeIssue.title}</strong>
+          {contextRoot && (
+            <div className="context-action-bar" data-graph-obstruction="top">
+              <span className="context-indicator" />
+              <button onClick={() => inspectIssue(contextRoot)}>
+                <small>분석 기준 · {shortId(contextRoot.id)}</small>
+                <strong>{contextRoot.title}</strong>
               </button>
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => explore(activeIssue)}
-                disabled={searching}
+                onClick={() => void generateInsight('analysis')}
+                disabled={Boolean(insightBusy) || !llmStatus?.ready}
               >
-                <Search size={13} /> 히스토리
+                {insightBusy === 'analysis' ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <BrainCircuit />
+                )}
+                이 이슈 분석
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void generateInsight('test-cases')}
+                disabled={Boolean(insightBusy) || !llmStatus?.ready}
+              >
+                {insightBusy === 'test-cases' ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <FlaskConical />
+                )}
+                테스트 케이스
+              </Button>
+            </div>
+          )}
+          {birthIssueId && (
+            <div className="star-birth-effect" key={birthVersion}>
+              <Sparkles />
+              <span />
+              <strong>
+                {shortId(birthIssueId)} · 새로운 기억이 태어났습니다
+              </strong>
             </div>
           )}
           {error && (
@@ -1649,8 +1907,7 @@ export function MemoryUniverse() {
             <div className="graph-facts">
               <span>
                 <i className="live-dot" />
-                {memoryCount} MEMORIES{' '}
-                {activeIssue?.status === 'open' ? '+ 1 ACTIVE' : ''}
+                {memoryCount} MEMORIES · {openCount} ACTIVE
               </span>
               <span>{graph.links.length} LINKS</span>
               <span>
@@ -1693,8 +1950,8 @@ export function MemoryUniverse() {
               </label>
             </div>
             <p>
-              배치: 내용·공통 자료의 연결 + 시간 보조 · 색상: 담당 팀 · 트리:
-              최대 3단계 · 선은 인과관계 확정이 아닙니다.
+              배치: 시간 순서의 황금각 나선 + 내용·공통 자료 연결 · 호박색: 진행
+              중 · 트리 최대 3단계 · 선은 인과관계 확정이 아닙니다.
             </p>
             {submittedQuery && (
               <p>탐색 상위 12건을 밝게 표시 · 검색 결과 전체는 왼쪽에서 확인</p>
@@ -1711,7 +1968,12 @@ export function MemoryUniverse() {
               <span>
                 <CircleDot
                   size={15}
-                  style={{ color: colorFor(selected.team) }}
+                  style={{
+                    color:
+                      selected.status === 'open'
+                        ? '#d7ba7d'
+                        : colorFor(selected.team),
+                  }}
                 />{' '}
                 {shortId(selected.id)}{' '}
                 <span className="revision">r{selected.revision}</span>
@@ -1734,29 +1996,32 @@ export function MemoryUniverse() {
                 <p>
                   {selected.team} · {selected.occurredAt}
                 </p>
+                {selected.id in representativeScenarios && (
+                  <span className="representative-badge">
+                    대표 사례 ·{' '}
+                    {
+                      representativeScenarios[
+                        selected.id as keyof typeof representativeScenarios
+                      ]
+                    }
+                  </span>
+                )}
                 {selected.synthetic && (
                   <small>합성 POC 이슈 · 날짜와 처리 이력은 가상입니다.</small>
                 )}
               </div>
               <div className="inspector-actions">
-                <Button
-                  size="sm"
-                  onClick={() => explore(selected)}
-                  disabled={searching}
-                >
-                  <Search />
-                  과거 기록 탐색
-                </Button>
+                {contextRoot && selected.id !== contextRoot.id && (
+                  <Button size="sm" onClick={() => inspectIssue(contextRoot)}>
+                    <RotateCcw /> 기준 이슈로 돌아가기
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => togglePin(selected.id)}
-                  disabled={
-                    selected.status !== 'closed' || selected.id === referenceId
-                  }
+                  onClick={() => beginContext(selected)}
                 >
-                  {pinnedIds.includes(selected.id) ? <Check /> : <Plus />}
-                  {pinnedIds.includes(selected.id) ? '담은 근거' : '근거 담기'}
+                  <GitBranch /> 이 이슈를 새 기준으로
                 </Button>
               </div>
               <section>
@@ -1768,132 +2033,166 @@ export function MemoryUniverse() {
                   <span key={tag}>{tag}</span>
                 ))}
               </div>
-              <section>
+              <section className="context-history">
                 <h3>
-                  관련 자료 <span>{selected.resources.length}</span>
-                </h3>
-                {selected.resources.length ? (
-                  selected.resources.map((resource) => (
-                    <div className="resource-row" key={resource.key}>
-                      <FileText size={14} />
-                      <div>
-                        <strong>{resource.label}</strong>
-                        <code>{resource.key}</code>
-                        <small>
-                          {resource.kind}
-                          {selected.synthetic ? ' · 합성 참조' : ''}
-                        </small>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p>등록된 관련 자료가 없습니다.</p>
-                )}
-              </section>
-              <section>
-                <h3>처리 기록</h3>
-                <ol className="activity-list">
-                  {selected.activities.map((activity) => (
-                    <li key={activity.id}>
-                      <span>
-                        {activity.at.slice(0, 10)} · {activity.author}
-                      </span>
-                      <p>{activity.body}</p>
-                    </li>
-                  ))}
-                </ol>
-                {selected.status === 'open' && (
-                  <form
-                    className="progress-form"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void saveProgress();
-                    }}
-                  >
-                    <label htmlFor="progress-note">
-                      확인한 내용 · 진행 기록
-                    </label>
-                    <Textarea
-                      id="progress-note"
-                      value={progressText}
-                      onChange={(event) => setProgressText(event.target.value)}
-                      maxLength={20000}
-                      rows={3}
-                      placeholder="조사한 내용, 담당자 협의, 검증 결과를 남기세요."
-                      disabled={progressBusy}
-                    />
-                    <Button
-                      size="sm"
-                      type="submit"
-                      variant="outline"
-                      disabled={progressBusy || !progressText.trim()}
-                    >
-                      {progressBusy ? (
-                        <LoaderCircle className="animate-spin" />
-                      ) : (
-                        <Plus />
-                      )}{' '}
-                      진행 기록 저장
-                    </Button>
-                  </form>
-                )}
-                {selected.resolution && (
-                  <div className="resolution-box">
-                    <span>
-                      <Check size={13} />
-                      처리 결과 · {selected.resolution.at.slice(0, 10)}
-                    </span>
-                    <p>{selected.resolution.body}</p>
-                    <strong>{selected.resolution.outcome}</strong>
-                  </div>
-                )}
-              </section>
-              {Object.keys(selected.attributes).length > 0 && (
-                <section>
-                  <h3>추가 속성</h3>
-                  <dl className="attribute-list">
-                    {Object.entries(selected.attributes).map(([key, value]) => (
-                      <div key={key}>
-                        <dt>{key}</dt>
-                        <dd>{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
-              )}
-              <section>
-                <h3>
-                  직접 연결 <span>{adjacent.length}</span>
+                  관련 이슈 흐름 <span>{history?.evidence.length ?? 0}</span>
                 </h3>
                 <p className="caption">
-                  관련 기록이지 정답이나 원인 확정이 아닙니다.
+                  {contextRoot
+                    ? `${shortId(contextRoot.id)}를 처음 기준으로 찾은 완료 이력입니다. 다른 노드를 눌러도 분석 기준은 유지됩니다.`
+                    : '이슈를 선택하면 관련된 완료 이력을 자동으로 찾습니다.'}
                 </p>
-                {adjacent.slice(0, 12).map(({ link, issue }) => (
-                  <button
-                    className="related-issue"
-                    key={issue.id}
-                    onClick={() => selectIssue(issue)}
-                  >
-                    <strong>
-                      {shortId(issue.id)} · {issue.title}
-                    </strong>
-                    <span>
-                      {link.relation}
-                      {link.semanticScore !== undefined
-                        ? ` · 의미 ${percent(link.semanticScore)}`
-                        : ''}{' '}
-                      · 내용 {percent(link.textScore)} · 자료{' '}
-                      {percent(link.resourceScore)} · {link.timeDistanceDays}일
-                      차이
-                    </span>
-                  </button>
-                ))}
-                {adjacent.length > 12 && (
-                  <p className="caption">
-                    나머지 연결은 그래프에서 확인할 수 있습니다.
+                {contextBusy && (
+                  <p className="context-loading">
+                    <LoaderCircle className="animate-spin" /> 관련 이력을
+                    정리하는 중…
                   </p>
                 )}
+                {!contextBusy && history?.evidence.length === 0 && (
+                  <p className="context-loading">
+                    현재 기준에서 연결할 완료 이력을 찾지 못했습니다.
+                  </p>
+                )}
+                {([1, 2] as const).map((depth) => {
+                  const group =
+                    history?.evidence.filter(
+                      (evidence) => evidence.depth === depth,
+                    ) ?? [];
+                  if (!group.length) return null;
+                  return (
+                    <div className="history-group" key={depth}>
+                      <strong>
+                        {depth === 1
+                          ? '바로 관련된 기록'
+                          : '한 단계 더 연결된 기록'}
+                      </strong>
+                      {group.slice(0, depth === 1 ? 5 : 4).map((evidence) => {
+                        const issue = byId.get(evidence.issueId);
+                        if (!issue) return null;
+                        return (
+                          <button
+                            className={`related-issue ${selected.id === issue.id ? 'is-selected' : ''}`}
+                            key={issue.id}
+                            onClick={() => inspectIssue(issue)}
+                          >
+                            <strong>
+                              {shortId(issue.id)} · {issue.title}
+                            </strong>
+                            <span>
+                              {evidence.sharedResources.length
+                                ? `같은 자료 ${evidence.sharedResources.length}개`
+                                : '내용이 유사한 기록'}
+                              {evidence.timeDistanceDays !== null
+                                ? ` · ${evidence.timeDistanceDays}일 차이`
+                                : ''}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </section>
+              <details className="inspector-details">
+                <summary>관련 자료와 처리 기록 자세히 보기</summary>
+                <section>
+                  <h3>
+                    관련 자료 <span>{selected.resources.length}</span>
+                  </h3>
+                  {selected.resources.length ? (
+                    selected.resources.map((resource) => (
+                      <div className="resource-row" key={resource.key}>
+                        <FileText size={14} />
+                        <div>
+                          <strong>{resource.label}</strong>
+                          <code>{resource.key}</code>
+                          <small>
+                            {resource.kind}
+                            {selected.synthetic ? ' · 합성 참조' : ''}
+                          </small>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p>등록된 관련 자료가 없습니다.</p>
+                  )}
+                </section>
+                <section>
+                  <h3>처리 기록</h3>
+                  <ol className="activity-list">
+                    {selected.activities.map((activity) => (
+                      <li key={activity.id}>
+                        <span>
+                          {activity.at.slice(0, 10)} · {activity.author}
+                        </span>
+                        <p>{activity.body}</p>
+                      </li>
+                    ))}
+                  </ol>
+                  {selected.status === 'open' && (
+                    <form
+                      className="progress-form"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void saveProgress();
+                      }}
+                    >
+                      <label htmlFor="progress-note">
+                        확인한 내용 · 진행 기록
+                      </label>
+                      <Textarea
+                        id="progress-note"
+                        value={progressText}
+                        onChange={(event) =>
+                          setProgressText(event.target.value)
+                        }
+                        maxLength={20000}
+                        rows={3}
+                        placeholder="조사한 내용, 담당자 협의, 검증 결과를 남기세요."
+                        disabled={progressBusy}
+                      />
+                      <Button
+                        size="sm"
+                        type="submit"
+                        variant="outline"
+                        disabled={progressBusy || !progressText.trim()}
+                      >
+                        {progressBusy ? (
+                          <LoaderCircle className="animate-spin" />
+                        ) : (
+                          <Plus />
+                        )}{' '}
+                        진행 기록 저장
+                      </Button>
+                    </form>
+                  )}
+                  {selected.resolution && (
+                    <div className="resolution-box">
+                      <span>
+                        <Check size={13} />
+                        처리 결과 · {selected.resolution.at.slice(0, 10)}
+                      </span>
+                      <p>{selected.resolution.body}</p>
+                      <strong>{selected.resolution.outcome}</strong>
+                    </div>
+                  )}
+                </section>
+                {Object.keys(selected.attributes).length > 0 && (
+                  <section>
+                    <h3>추가 속성</h3>
+                    <dl className="attribute-list">
+                      {Object.entries(selected.attributes).map(
+                        ([key, value]) => (
+                          <div key={key}>
+                            <dt>{key}</dt>
+                            <dd>{value}</dd>
+                          </div>
+                        ),
+                      )}
+                    </dl>
+                  </section>
+                )}
+              </details>
               {selected.source && (
                 <details className="external-example">
                   <summary>
@@ -1920,19 +2219,16 @@ export function MemoryUniverse() {
               )}
               <button
                 className="reroot-button"
-                onClick={() => {
-                  setGravityRootId(issueNodeId(selected));
-                  setFocusVersion((value) => value + 1);
-                }}
+                onClick={() => beginContext(selected)}
               >
-                이 이슈를 트리의 기준으로 <GitBranch size={14} />
+                이 이슈를 새 분석 기준으로 <GitBranch size={14} />
               </button>
             </div>
             <div className="inspector-bottom">
               {selected.status === 'open' ? (
                 <Button className="w-full" onClick={() => setForm('resolve')}>
                   <Check />
-                  처리 완료 · 기억으로 전환
+                  처리 완료
                 </Button>
               ) : (
                 <div className="memory-artifact-status">
@@ -1955,7 +2251,12 @@ export function MemoryUniverse() {
                     disabled={
                       compilingIds.has(selected.id) || !llmStatus?.ready
                     }
-                    onClick={() => void compileMemory(selected.id)}
+                    onClick={() =>
+                      void compileMemory(
+                        selected.id,
+                        selectedArtifact?.compileStatus === 'failed',
+                      )
+                    }
                   >
                     {compilingIds.has(selected.id) ? (
                       <LoaderCircle className="animate-spin" />
@@ -1979,9 +2280,9 @@ export function MemoryUniverse() {
         <span>D1 영구 저장 · 개인 작업공간</span>
         <span>
           {memoryIndex?.indexed
-            ? `의미 색인 ${memoryIndex.indexed}/${memoryIndex.total} · AI Brief ${llmStatus?.ready ? '준비됨' : '설정 필요'}`
+            ? `의미 색인 ${memoryIndex.indexed}/${memoryIndex.total} · AI 분석 ${llmStatus?.ready ? '준비됨' : '설정 필요'}`
             : llmStatus?.ready
-              ? 'AI Brief 준비됨 · 의미 색인 대기'
+              ? 'AI 분석 준비됨 · 의미 색인 대기'
               : '원문 탐색 사용 가능 · AI 키 설정 필요'}
         </span>
       </footer>
@@ -1999,7 +2300,33 @@ export function MemoryUniverse() {
           issue={form === 'resolve' ? selected : null}
           onSaved={saved}
           onClose={() => setForm(null)}
-          evidenceIds={pinnedIds}
+        />
+      )}
+      {insightMode && contextRoot && (
+        <InsightDialog
+          mode={insightMode}
+          root={contextRoot}
+          analysis={analysis}
+          testPlan={testPlan}
+          busy={insightBusy}
+          onMode={(mode) => {
+            if (mode === 'analysis' && !analysis) {
+              void generateInsight(mode);
+              return;
+            }
+            if (mode === 'test-cases' && !testPlan) {
+              void generateInsight(mode);
+              return;
+            }
+            setInsightMode(mode);
+          }}
+          onClose={() => setInsightMode(null)}
+          onEvidence={(id) => {
+            const issue = byId.get(id);
+            if (!issue) return;
+            setInsightMode(null);
+            inspectIssue(issue);
+          }}
         />
       )}
     </main>

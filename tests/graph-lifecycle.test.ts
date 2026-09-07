@@ -8,27 +8,34 @@ import {
   issueNodeId,
   linkEndpointId,
 } from '../lib/memory-graph.ts';
+import { createNebulaLayout } from '../lib/gravity-layout.ts';
 
 const issues = JSON.parse(
   readFileSync(new URL('../data/issues.json', import.meta.url), 'utf8'),
 ) as Issue[];
 
-void test('memory universe contains completed issues only, work issue is an explicit projection', () => {
+void test('first universe contains every issue with open work visibly separated', () => {
   const initial = createMemoryGraph(issues);
-  assert.equal(initial.nodes.length, 251);
-  assert.ok(initial.nodes.every((node) => node.phase === 'memory'));
+  assert.equal(initial.nodes.length, 294);
+  assert.equal(
+    initial.nodes.filter((node) => node.phase === 'memory').length,
+    251,
+  );
+  assert.equal(
+    initial.nodes.filter((node) => node.phase === 'active').length,
+    43,
+  );
   assert.ok(
-    initial.nodes.every((node) => node.id === `memory:${node.issueId}`),
+    initial.nodes.every(
+      (node) =>
+        node.id ===
+        `${node.phase === 'memory' ? 'memory' : 'active'}:${node.issueId}`,
+    ),
   );
   const working = createMemoryGraph(issues, 4, 'WS-008');
-  assert.equal(working.nodes.length, 252);
-  assert.deepEqual(
-    working.nodes
-      .filter((node) => node.phase === 'active')
-      .map((node) => node.id),
-    ['active:WS-008'],
-  );
-  assert.ok(!working.nodes.some((node) => node.issueId === 'WS-016'));
+  assert.equal(working.nodes.length, 294);
+  assert.deepEqual(working, initial);
+  assert.ok(working.nodes.some((node) => node.issueId === 'WS-016'));
   const canonical = issues.find((issue) => issue.id === 'WS-008')!;
   const projection = working.nodes.find(
     (node) => node.issueId === canonical.id,
@@ -36,10 +43,7 @@ void test('memory universe contains completed issues only, work issue is an expl
   assert.equal(projection.name, canonical.title);
   assert.equal(projection.issueKey, canonical.id);
   assert.equal(projection.color, '#d7ba7d');
-  assert.deepEqual(
-    working.links.filter((link) => !link.id.includes('active:')),
-    initial.links,
-  );
+  assert.equal(new Set(working.nodes.map((node) => node.issueId)).size, 294);
 });
 
 void test('working issue connects by actual relevance only to completed memories', () => {
@@ -50,7 +54,12 @@ void test('working issue connects by actual relevance only to completed memories
     assert.ok(ids.has(linkEndpointId(link.source)));
     assert.ok(ids.has(linkEndpointId(link.target)));
   }
-  const activeLinks = graph.links.filter((link) => link.id.includes('active:'));
+  const activeNodeId = issueNodeId(active);
+  const activeLinks = graph.links.filter(
+    (link) =>
+      linkEndpointId(link.source) === activeNodeId ||
+      linkEndpointId(link.target) === activeNodeId,
+  );
   const expected = issues
     .filter((issue) => issue.status === 'closed')
     .map((issue) => ({
@@ -68,7 +77,9 @@ void test('working issue connects by actual relevance only to completed memories
   );
   assert.ok(
     activeLinks.every((link) =>
-      linkEndpointId(link.target).startsWith('memory:'),
+      [linkEndpointId(link.source), linkEndpointId(link.target)].some((id) =>
+        id.startsWith('memory:'),
+      ),
     ),
   );
 });
@@ -98,8 +109,11 @@ void test('completion removes active node, adds one memory, and retains issue id
     completedGraph.nodes.filter((node) => node.issueId === issue.id).length,
     1,
   );
-  assert.equal(completedGraph.nodes.length, 252);
-  assert.ok(completedGraph.nodes.every((node) => node.phase === 'memory'));
+  assert.equal(completedGraph.nodes.length, 294);
+  assert.equal(
+    completedGraph.nodes.filter((node) => node.phase === 'active').length,
+    42,
+  );
   const memory = completedGraph.nodes.find(
     (node) => node.id === 'memory:WS-008',
   )!;
@@ -108,10 +122,12 @@ void test('completion removes active node, adds one memory, and retains issue id
   assert.equal(memory.name, issue.title);
   assert.equal(resolved.body, issue.body);
   assert.equal(JSON.stringify(issues), before);
-  assert.ok(completedGraph.links.every((link) => !link.id.includes('active:')));
+  assert.ok(
+    completedGraph.links.every((link) => !link.id.includes('active:WS-008')),
+  );
 });
 
-void test('unknown or already completed work selections do not fabricate nodes', () => {
+void test('selection never fabricates or hides nodes', () => {
   assert.deepEqual(
     createMemoryGraph(issues, 4, 'missing'),
     createMemoryGraph(issues),
@@ -121,10 +137,10 @@ void test('unknown or already completed work selections do not fabricate nodes',
     createMemoryGraph(issues),
   );
   const selectedOne = createMemoryGraph(issues, 4, 'WS-016');
-  assert.ok(!selectedOne.nodes.some((node) => node.id === 'active:WS-008'));
+  assert.ok(selectedOne.nodes.some((node) => node.id === 'active:WS-008'));
   assert.equal(
     selectedOne.nodes.filter((node) => node.phase === 'active').length,
-    1,
+    43,
   );
 });
 
@@ -135,8 +151,40 @@ void test('empty history and unrelated work issue have safe node-only graphs', (
   assert.equal(graph.nodes.length, 1);
   assert.equal(graph.nodes[0].phase, 'active');
   assert.deepEqual(graph.links, []);
-  assert.deepEqual(createMemoryGraph([active]), { nodes: [], links: [] });
+  assert.deepEqual(createMemoryGraph([active]), graph);
   assert.deepEqual(createMemoryGraph(issues, 0).links, []);
+});
+
+void test('ordered nebula is deterministic, finite, unique, and grows outward with time', () => {
+  const graph = createMemoryGraph(issues);
+  const first = createNebulaLayout(graph.nodes, graph.links);
+  const reversed = createNebulaLayout(
+    [...graph.nodes].reverse(),
+    [...graph.links].reverse(),
+  );
+  assert.equal(first.size, 294);
+  for (const [id, point] of first) {
+    assert.deepEqual(point, reversed.get(id));
+    assert.ok([point.x, point.y, point.z].every(Number.isFinite));
+  }
+  const rounded = new Set(
+    [...first.values()].map(
+      (point) =>
+        `${point.x.toFixed(5)}:${point.y.toFixed(5)}:${point.z.toFixed(5)}`,
+    ),
+  );
+  assert.equal(rounded.size, graph.nodes.length);
+  const ordered = [...graph.nodes].sort(
+    (a, b) =>
+      a.occurredAt.localeCompare(b.occurredAt) ||
+      a.issueId.localeCompare(b.issueId),
+  );
+  const meanRadius = (records: typeof ordered) =>
+    records.reduce((sum, node) => {
+      const point = first.get(node.id)!;
+      return sum + Math.hypot(point.x, point.y, point.z);
+    }, 0) / records.length;
+  assert.ok(meanRadius(ordered.slice(-24)) > meanRadius(ordered.slice(0, 24)));
 });
 
 void test('recorded completion evidence survives the edge budget without implying similarity or causality', () => {

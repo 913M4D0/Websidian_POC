@@ -16,6 +16,14 @@ import {
   MemoryArtifactError,
   parseCompiledMemory,
 } from './memory-artifact.ts';
+import {
+  buildIssueInsightRequest,
+  parseIssueAnalysisOutput,
+  parseIssueTestPlanOutput,
+  type IssueAnalysisResponse,
+  type IssueInsightContext,
+  type IssueTestPlanResponse,
+} from './issue-insight.ts';
 
 type LlmEnvironment = {
   OPENROUTER_API_KEY?: string;
@@ -162,8 +170,8 @@ async function reserveCall(actor: string) {
     .bind(now)
     .run();
   for (const [duration, maximum] of [
-    [60_000, 2],
-    [3_600_000, 12],
+    [60_000, 3],
+    [3_600_000, 18],
   ]) {
     const bucket = `${duration}:${Math.floor(now / duration)}`;
     const result = await db
@@ -174,10 +182,128 @@ async function reserveCall(actor: string) {
       .first<{ count: number }>();
     if (!result)
       throw new BriefError(
-        'AI 생성은 1분 2회·1시간 12회까지 가능합니다. 잠시 후 다시 시도해 주세요.',
+        'AI 생성은 1분 3회·1시간 18회까지 가능합니다. 잠시 후 다시 시도해 주세요.',
         429,
       );
   }
+}
+
+async function generateIssueInsight(
+  actor: string,
+  context: IssueInsightContext,
+  kind: 'analysis' | 'test-cases',
+): Promise<IssueAnalysisResponse | IssueTestPlanResponse> {
+  const status = await getLlmStatus();
+  if (!status.ready) throw new BriefError(status.reason, 503);
+  if (inFlight.has(actor))
+    throw new BriefError('이미 이 이슈의 AI 작업을 처리 중입니다.', 429);
+  const apiKey = configuration().OPENROUTER_API_KEY?.trim();
+  if (!apiKey) throw new BriefError('AI 서버 설정이 필요합니다.', 503);
+  inFlight.add(actor);
+  try {
+    const model = await verifiedModel();
+    await reserveCall(actor);
+    const response = await fetch(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'X-OpenRouter-Title':
+            kind === 'analysis'
+              ? 'Websidian issue analysis'
+              : 'Websidian test cases',
+        },
+        body: JSON.stringify(buildIssueInsightRequest(model, context, kind)),
+        signal: AbortSignal.timeout(45_000),
+        redirect: 'error',
+      },
+    );
+    if (!response.ok) {
+      await response.body?.cancel();
+      if (response.status === 429)
+        throw new BriefError(
+          'AI 제공자의 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.',
+          429,
+        );
+      if ([401, 402, 403].includes(response.status))
+        throw new BriefError(
+          'AI 제공자의 키 권한·잔액·모델 접근 설정을 확인해 주세요.',
+          503,
+        );
+      throw new BriefError('AI가 결과 생성을 완료하지 못했습니다.', 502);
+    }
+    const envelope = (await boundedJson(response, 512_000)) as {
+      choices?: { message?: { content?: unknown }; finish_reason?: string }[];
+    };
+    const choice = envelope.choices?.[0];
+    if (
+      choice?.finish_reason !== 'stop' ||
+      typeof choice.message?.content !== 'string'
+    )
+      throw new BriefError('AI 응답이 완성되지 않았습니다.', 502);
+    let raw: unknown;
+    try {
+      raw = JSON.parse(choice.message.content);
+    } catch {
+      throw new BriefError('AI 응답 JSON 형식이 올바르지 않습니다.', 502);
+    }
+    const common = {
+      rootIssueId: context.rootIssue.id,
+      evidenceIds: context.citationIds,
+      modelId: model.id,
+      reasoning: model.effort,
+      generatedAt: new Date().toISOString(),
+      engine: 'openrouter' as const,
+    };
+    return kind === 'analysis'
+      ? {
+          ...common,
+          kind,
+          analysis: parseIssueAnalysisOutput(raw, context.citationIds),
+        }
+      : {
+          ...common,
+          kind,
+          testPlan: parseIssueTestPlanOutput(raw, context.citationIds),
+        };
+  } catch (error) {
+    if (error instanceof BriefError) throw error;
+    if (
+      error instanceof Error &&
+      ['AbortError', 'TimeoutError'].includes(error.name)
+    )
+      throw new BriefError(
+        'AI 생성 시간이 초과되었습니다. 자동 재요청하지 않았습니다.',
+        504,
+      );
+    throw new BriefError('AI 서비스 연결에 실패했습니다.', 503);
+  } finally {
+    inFlight.delete(actor);
+  }
+}
+
+export async function generateIssueAnalysis(
+  actor: string,
+  context: IssueInsightContext,
+): Promise<IssueAnalysisResponse> {
+  return (await generateIssueInsight(
+    actor,
+    context,
+    'analysis',
+  )) as IssueAnalysisResponse;
+}
+
+export async function generateIssueTestCases(
+  actor: string,
+  context: IssueInsightContext,
+): Promise<IssueTestPlanResponse> {
+  return (await generateIssueInsight(
+    actor,
+    context,
+    'test-cases',
+  )) as IssueTestPlanResponse;
 }
 
 export async function generateBrief(

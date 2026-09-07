@@ -171,14 +171,13 @@ function graphCandidates(issues: Issue[]) {
   return computed;
 }
 
-/**
- * Completed issues form durable memory. An explicitly opened work item is a
- * temporary projection, never another stored issue or a permanent memory.
+/** Every canonical issue is visible. Open work is an amber temporary phase;
+ * completion swaps only its renderer identity from active:* to memory:*.
  */
 export function createMemoryGraph(
   issues: Issue[],
   neighbors = 4,
-  activeIssueId?: string | null,
+  _activeIssueId?: string | null,
   semanticArtifacts: {
     issueId: string;
     semanticNeighbors: { issueId: string; score: number }[];
@@ -235,24 +234,24 @@ export function createMemoryGraph(
       });
     }
   }
-  const active = issues.find(
-    (issue) => issue.id === activeIssueId && issue.status === 'open',
-  );
-  if (!active) return { nodes, links: [...visible.values()] };
-
-  // Work-item selection cannot displace links between existing memories.
-  let activeLinks = activeCandidates.get(active.id);
-  if (!activeLinks) {
-    activeLinks = issues
-      .filter((issue) => issue.status === 'closed')
-      .map((issue) => issueLink(active, issue))
-      .filter((link): link is MemoryLink => link !== null)
-      .sort(compareLinks);
-    activeCandidates.set(active.id, activeLinks);
+  const activeIssues = issues.filter((issue) => issue.status === 'open');
+  const completedIssues = issues.filter((issue) => issue.status === 'closed');
+  // Work-item links never displace links between durable memories. They are
+  // computed for every visible open item so the first screen is the complete
+  // issue universe, not a completed-only archive.
+  for (const active of activeIssues) {
+    let activeLinks = activeCandidates.get(active.id);
+    if (!activeLinks) {
+      activeLinks = completedIssues
+        .map((issue) => issueLink(active, issue))
+        .filter((link): link is MemoryLink => link !== null)
+        .sort(compareLinks);
+      activeCandidates.set(active.id, activeLinks);
+    }
+    for (const edge of activeLinks.slice(0, limit)) visible.set(edge.id, edge);
   }
-  for (const edge of activeLinks.slice(0, limit)) visible.set(edge.id, edge);
   return {
-    nodes: [...nodes, issueToNode(active)],
+    nodes: [...nodes, ...activeIssues.map(issueToNode)],
     links: [...visible.values()],
   };
 }

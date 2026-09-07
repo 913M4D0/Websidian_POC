@@ -3,7 +3,7 @@ import {
   linkEndpointId,
   type MemoryLink,
   type MemoryNode,
-} from '@/lib/memory-graph';
+} from './memory-graph.ts';
 
 export type GraphPosition = { x: number; y: number; z: number };
 
@@ -32,7 +32,7 @@ export const WORLD_BASIS: GraphBasis = {
   forward: { x: 0, y: 0, z: -1 },
 };
 
-const LEVEL_LIMITS = [1, 64, 44, 36] as const;
+const LEVEL_LIMITS = [1, 12, 18, 24] as const;
 const HOP_GAP = 92;
 
 function hash(input: string) {
@@ -79,14 +79,6 @@ function normalize(vector: GraphPosition): GraphPosition {
   return scale(vector, 1 / length);
 }
 
-function monthIndex(occurredAt: string) {
-  return (
-    (Number(occurredAt.slice(0, 4)) - 2025) * 12 +
-    Number(occurredAt.slice(5, 7)) -
-    1
-  );
-}
-
 function connectionPriority(
   _parent: MemoryNode,
   _child: MemoryNode,
@@ -102,34 +94,49 @@ export function memoryLinkKey(link: MemoryLink) {
   return `${source}::${target}::${link.relation}`;
 }
 
-/** Stable force-relaxed nebula: links shape distance; labels never gate proximity. */
+/**
+ * Stable ordered nebula. A Vogel spiral supplies visible rhythm, chronology
+ * expands from the centre, and a bounded link relaxation keeps related issues
+ * near one another without destroying the constellation's structure.
+ */
 export function createNebulaLayout(
   nodes: MemoryNode[],
   links: MemoryLink[] = [],
 ) {
-  const ordered = [...nodes].sort((a, b) => a.id.localeCompare(b.id));
+  const ordered = [...nodes].sort(
+    (a, b) =>
+      a.occurredAt.localeCompare(b.occurredAt) ||
+      a.issueId.localeCompare(b.issueId),
+  );
   const positions = new Map<string, GraphPosition>();
-  const dates = ordered.map((n) => monthIndex(n.occurredAt));
-  const centerDate = dates.length
-    ? (Math.min(...dates) + Math.max(...dates)) / 2
-    : 0;
-  for (const node of ordered)
-    positions.set(node.id, {
-      x:
-        centeredNoise(node.id, 'nebula-x') * 400 +
-        (monthIndex(node.occurredAt) - centerDate) * 2,
-      y: centeredNoise(node.id, 'nebula-y') * 280,
-      z: centeredNoise(node.id, 'nebula-z') * 280,
-    });
-  const pairs = links
+  const anchors = new Map<string, GraphPosition>();
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  ordered.forEach((node, index) => {
+    const progress = (index + 0.5) / Math.max(1, ordered.length);
+    const radius = 34 + 344 * Math.sqrt(progress);
+    const angle =
+      index * goldenAngle + centeredNoise(node.issueId, 'spiral-angle') * 0.07;
+    const thickness = 25 + radius * 0.13;
+    const anchor = {
+      x: Math.cos(angle) * radius * 1.12,
+      y: Math.sin(angle) * radius * 0.69,
+      z:
+        Math.sin(angle * 0.43) * thickness * 0.72 +
+        centeredNoise(node.issueId, 'spiral-depth') * thickness,
+    };
+    anchors.set(node.id, anchor);
+    positions.set(node.id, { ...anchor });
+  });
+  const pairs = [...links]
+    .sort((a, b) => memoryLinkKey(a).localeCompare(memoryLinkKey(b)))
     .map((link) => ({
       a: positions.get(linkEndpointId(link.source))!,
       b: positions.get(linkEndpointId(link.target))!,
       score: link.score,
     }))
     .filter((p) => p.a && p.b);
-  for (let step = 0; step < 110; step += 1) {
-    const cooling = 0.8 * (1 - step / 140);
+  for (let step = 0; step < 42; step += 1) {
+    const cooling = 1 - step / 52;
     const values = [...positions.values()];
     for (let a = 0; a < values.length; a += 1)
       for (let b = a + 1; b < values.length; b += 1) {
@@ -138,8 +145,9 @@ export function createNebulaLayout(
           dx = p.x - q.x,
           dy = p.y - q.y,
           dz = p.z - q.z;
-        const distance = Math.max(8, Math.hypot(dx, dy, dz));
-        const force = Math.min(1.8, 180 / (distance * distance)) * cooling;
+        const distance = Math.max(4, Math.hypot(dx, dy, dz));
+        if (distance >= 24) continue;
+        const force = Math.min(1.25, (24 - distance) * 0.045) * cooling;
         p.x += (dx / distance) * force;
         p.y += (dy / distance) * force;
         p.z += (dz / distance) * force;
@@ -152,7 +160,11 @@ export function createNebulaLayout(
         dy = b.y - a.y,
         dz = b.z - a.z,
         distance = Math.max(1, Math.hypot(dx, dy, dz));
-      const force = (distance - (40 + 55 * (1 - score))) * 0.022 * cooling;
+      const desired = 46 + 62 * (1 - score);
+      const force = Math.max(
+        -1.2,
+        Math.min(1.2, (distance - desired) * 0.009 * cooling),
+      );
       a.x += (dx / distance) * force;
       a.y += (dy / distance) * force;
       a.z += (dz / distance) * force;
@@ -160,10 +172,11 @@ export function createNebulaLayout(
       b.y -= (dy / distance) * force;
       b.z -= (dz / distance) * force;
     }
-    for (const p of values) {
-      p.x *= 0.999;
-      p.y *= 0.999;
-      p.z *= 0.999;
+    for (const [id, p] of positions) {
+      const anchor = anchors.get(id)!;
+      p.x += (anchor.x - p.x) * 0.055;
+      p.y += (anchor.y - p.y) * 0.055;
+      p.z += (anchor.z - p.z) * 0.055;
     }
   }
   return positions;

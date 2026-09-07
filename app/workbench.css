@@ -1475,3 +1475,431 @@
     display: none;
   }
 }
+
+/* Issue-first context flow */
+.context-action-bar {
+  position: absolute;
+  z-index: 14;
+  top: 76px;
+  left: 24px;
+  right: 24px;
+  min-height: 58px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #4b5156;
+  border-radius: 5px;
+  background: rgba(31, 33, 35, 0.95);
+  box-shadow: 0 12px 32px #0005;
+  backdrop-filter: blur(10px);
+}
+.context-indicator {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: #d7ba7d;
+  box-shadow: 0 0 16px #d7ba7d88;
+}
+.context-action-bar > button:first-of-type {
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+.context-action-bar small {
+  display: block;
+  margin-bottom: 3px;
+  color: #aab2b8;
+  font-size: 11px;
+}
+.context-action-bar strong {
+  display: block;
+  overflow: hidden;
+  color: #e1e1e1;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-action-bar .button,
+.context-action-bar > button:not(:first-of-type) {
+  min-height: 34px;
+  padding-inline: 12px;
+  border-color: #4c5358;
+  background: #282b2e;
+  color: #d4d9dc;
+  font-size: 12px;
+}
+.issue-workbench:has(.context-action-bar) .workbench-alert {
+  top: 146px;
+}
+.representative-badge,
+.representative-row {
+  display: block;
+  color: #d2bc92 !important;
+  font-size: 11px !important;
+  line-height: 1.55;
+}
+.representative-badge {
+  width: fit-content;
+  margin-top: 10px;
+  padding: 4px 7px;
+  border: 1px solid #574b36;
+  border-radius: 3px;
+  background: #29251e;
+}
+.representative-row {
+  margin: -1px 0 8px !important;
+}
+.context-history {
+  padding: 15px;
+  border: 1px solid #383d41;
+  border-radius: 5px;
+  background: #202225;
+}
+.context-history > h3 {
+  margin-top: 0;
+}
+.context-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  color: #aeb7bc;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.history-group + .history-group {
+  margin-top: 18px;
+}
+.history-group > strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #9eabb3;
+  font-size: 11px;
+  font-weight: 500;
+}
+.related-issue {
+  padding: 11px 9px;
+  border: 1px solid transparent;
+  border-bottom-color: #33373a;
+  border-radius: 3px;
+}
+.related-issue:hover,
+.related-issue.is-selected {
+  border-color: #4b555c;
+  background: #292c2f;
+}
+.related-issue strong {
+  font-size: 13px;
+  line-height: 1.55;
+}
+.related-issue span {
+  margin-top: 6px;
+  color: #9baab4;
+  font-size: 11px;
+}
+.inspector-details {
+  margin: 24px 0;
+  border-top: 1px solid #333;
+  border-bottom: 1px solid #333;
+  padding: 13px 0;
+}
+.inspector-details > summary {
+  color: #bdc5ca;
+  font-size: 13px;
+  cursor: pointer;
+}
+.inspector-details[open] > summary {
+  margin-bottom: 18px;
+}
+.form-context span {
+  display: block;
+  margin-top: 7px;
+  color: #d7ba7d;
+  font-size: 11px;
+}
+
+/* The primary reading path stays comfortably legible for non-developers. */
+.issue-search input,
+.issue-row strong,
+.inspector-actions button,
+.inspector-bottom button {
+  font-size: 13px;
+}
+.issue-row-meta,
+.issue-row-bottom,
+.issue-search p,
+.list-caption,
+.caption,
+.issue-identity p,
+.issue-identity small,
+.inspector-scroll h3,
+.resource-row strong,
+.activity-list p,
+.progress-form label,
+.progress-form textarea,
+.resolution-box p {
+  font-size: 11.5px;
+}
+.original-body {
+  color: #c9c9c9;
+  font-size: 13.5px;
+  line-height: 1.9;
+}
+
+/* AI result sheet */
+.insight-dialog {
+  border-color: #454b50 !important;
+  background: #202224 !important;
+  color: #d4d4d4;
+}
+.insight-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid #383d41;
+  border-radius: 5px;
+  background: #191b1d;
+}
+.insight-tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  border-radius: 4px;
+  color: #9fa8ae;
+  font-size: 13px;
+}
+.insight-tabs button[aria-pressed='true'] {
+  background: #303438;
+  color: #f0f0f0;
+}
+.insight-tabs svg {
+  width: 16px;
+}
+.insight-loading,
+.insight-empty {
+  min-height: 230px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #aeb7bc;
+  text-align: center;
+}
+.insight-loading span,
+.insight-empty {
+  font-size: 12px;
+}
+.insight-result {
+  padding: 8px 2px;
+}
+.insight-result > h3 {
+  margin: 27px 0 11px;
+  color: #d5dadd;
+  font-size: 14px;
+  font-weight: 600;
+}
+.insight-summary {
+  margin-top: 12px;
+  padding: 16px;
+  border-left: 3px solid #4ec9b0;
+  background: #202b29;
+}
+.insight-summary span {
+  color: #81c8b9;
+  font-size: 11px;
+}
+.insight-summary p {
+  margin: 8px 0 0;
+  color: #d0d7d5;
+  font-size: 14px;
+  line-height: 1.85;
+}
+.insight-claim,
+.test-case {
+  margin-bottom: 10px;
+  padding: 15px;
+  border: 1px solid #373d41;
+  border-radius: 5px;
+  background: #25282a;
+}
+.insight-claim small {
+  color: #9cb3c2;
+  font-size: 10px;
+}
+.insight-claim h4,
+.test-case h4 {
+  margin: 7px 0;
+  color: #e0e0e0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.insight-claim p,
+.test-case p,
+.test-case li,
+.insight-questions li {
+  color: #bec3c6;
+  font-size: 12.5px;
+  line-height: 1.8;
+}
+.insight-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 11px;
+}
+.insight-citations button {
+  padding: 4px 7px;
+  border: 1px solid #48535a;
+  border-radius: 3px;
+  color: #9cdcfe;
+  font-size: 10.5px;
+}
+.test-case > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  color: #9ba7ae;
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+.test-case b {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #31383c;
+  color: #b9c6cd;
+  font-weight: 500;
+}
+.test-case b[data-priority='critical'] {
+  background: #492d2d;
+  color: #f1aaaa;
+}
+.test-case b[data-priority='high'] {
+  background: #453c29;
+  color: #dfc48b;
+}
+.test-case h5 {
+  margin: 14px 0 5px;
+  color: #9faab0;
+  font-size: 11px;
+}
+.test-case ul,
+.test-case ol,
+.insight-questions {
+  padding-left: 20px;
+}
+.insight-disclosure {
+  margin: 12px 0 0;
+  color: #858f95;
+  font-size: 10.5px;
+  line-height: 1.7;
+}
+
+/* Successful completion becomes a new star in the overview. */
+.star-birth-effect {
+  position: absolute;
+  z-index: 13;
+  left: 50%;
+  top: 48%;
+  width: 280px;
+  height: 180px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  animation: birth-copy 2.35s ease both;
+}
+.star-birth-effect::before,
+.star-birth-effect::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #fff9;
+  border-radius: 50%;
+  box-shadow: 0 0 28px 10px #dcdcaa55;
+  animation: birth-ring 1.55s ease-out both;
+}
+.star-birth-effect::after {
+  animation-delay: 0.16s;
+}
+.star-birth-effect > svg {
+  width: 28px;
+  height: 28px;
+  color: #fff;
+  filter: drop-shadow(0 0 14px #fff) drop-shadow(0 0 26px #dcdcaa);
+  animation: birth-star 1.4s ease-out both;
+}
+.star-birth-effect strong {
+  position: absolute;
+  top: calc(50% + 42px);
+  padding: 7px 10px;
+  border: 1px solid #4f5559;
+  border-radius: 4px;
+  background: #202224e8;
+  color: #f0eddd;
+  font-size: 12px;
+  font-weight: 500;
+}
+@keyframes birth-ring {
+  from {
+    transform: scale(0.1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(8);
+    opacity: 0;
+  }
+}
+@keyframes birth-star {
+  0% {
+    transform: scale(0.05) rotate(-40deg);
+    opacity: 0;
+  }
+  55% {
+    transform: scale(1.55) rotate(8deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+@keyframes birth-copy {
+  0%,
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .context-action-bar {
+    top: 68px;
+    left: 12px;
+    right: 12px;
+    flex-wrap: wrap;
+  }
+  .context-action-bar > button:first-of-type {
+    flex-basis: calc(100% - 20px);
+  }
+  .context-action-bar > button:not(:first-of-type) {
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .star-birth-effect,
+  .star-birth-effect::before,
+  .star-birth-effect::after,
+  .star-birth-effect > svg {
+    animation-duration: 1ms;
+  }
+}

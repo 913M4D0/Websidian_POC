@@ -290,6 +290,8 @@ export function GraphStage({
   highlightedIds,
   viewResetVersion,
   selectionFocusVersion,
+  birthNodeId,
+  birthVersion,
   onSelect,
   onGravityChange,
   onReady,
@@ -304,6 +306,8 @@ export function GraphStage({
   highlightedIds: Set<string>;
   viewResetVersion: number;
   selectionFocusVersion: number;
+  birthNodeId: string | null;
+  birthVersion: number;
   onSelect: (node: MemoryNode | null) => void;
   onGravityChange: (summary: GravitySummary | null) => void;
   onReady: () => void;
@@ -351,6 +355,7 @@ export function GraphStage({
     target: GraphPosition;
   } | null>(null);
   const selectionFocusFrameRef = useRef<number | null>(null);
+  const birthAnimationFrameRef = useRef<number | null>(null);
   const nodesRef = useRef(nodes);
   const linksRef = useRef(links);
   const stateRef = useRef({
@@ -365,6 +370,7 @@ export function GraphStage({
   const onReadyRef = useRef(onReady);
   const onErrorRef = useRef(onError);
   const reducedMotionRef = useRef(false);
+  const birthNodeIdRef = useRef(birthNodeId);
 
   nodesRef.current = nodes;
   linksRef.current = links;
@@ -379,6 +385,7 @@ export function GraphStage({
   onGravityChangeRef.current = onGravityChange;
   onReadyRef.current = onReady;
   onErrorRef.current = onError;
+  birthNodeIdRef.current = birthNodeId;
 
   useEffect(() => {
     let cancelled = false;
@@ -782,15 +789,16 @@ export function GraphStage({
             const isSelected = node.id === state.selectedId;
             const isRoot = node.id === state.gravityRootId;
             const isActive = node.phase === 'active';
+            const isBorn = node.id === birthNodeIdRef.current;
             const showNeighborLabel = getNeighborLabelIds().has(node.id);
             const group = new THREE.Group();
             nodeObjects.set(node.id, group);
             if (
               !(
-                isActive ||
                 isSelected ||
                 isRoot ||
                 isHovered ||
+                isBorn ||
                 showNeighborLabel ||
                 depth === 1
               )
@@ -801,26 +809,30 @@ export function GraphStage({
             );
             sprite.color = isActive
               ? '#e8d5af'
-              : isHovered
-                ? '#dcdcaa'
-                : isSelected
-                  ? '#f3f3f3'
-                  : isRoot
+              : isBorn
+                ? '#ffffff'
+                : isHovered
+                  ? '#dcdcaa'
+                  : isSelected
                     ? '#f3f3f3'
-                    : node.color;
+                    : isRoot
+                      ? '#f3f3f3'
+                      : node.color;
             sprite.textHeight = depth === 1 || showNeighborLabel ? 2.7 : 3.2;
             sprite.fontWeight = '600';
             sprite.backgroundColor =
-              isActive || isSelected || isRoot || isHovered
+              isActive || isSelected || isRoot || isHovered || isBorn
                 ? 'rgba(37,37,38,.94)'
                 : false;
             sprite.padding =
-              isActive || isSelected || isRoot || isHovered ? [3, 5] : 0;
+              isActive || isSelected || isRoot || isHovered || isBorn
+                ? [3, 5]
+                : 0;
             sprite.borderRadius = 1;
             sprite.position.y = isActive ? 13 : 8;
             group.add(sprite);
 
-            if (isActive || isSelected || isRoot || isHovered) {
+            if (isActive || isSelected || isRoot || isHovered || isBorn) {
               const ringColor = isActive
                 ? '#d7ba7d'
                 : isHovered
@@ -870,6 +882,38 @@ export function GraphStage({
               orbit.rotation.z = Math.PI * 0.025;
               group.add(ring, orbit);
             }
+            if (isBorn) {
+              const burst = new THREE.Group();
+              const materials: import('three').MeshBasicMaterial[] = [];
+              for (const [radius, opacity] of [
+                [7, 0.95],
+                [13, 0.66],
+                [19, 0.34],
+              ] as const) {
+                const material = new THREE.MeshBasicMaterial({
+                  color: radius === 7 ? '#ffffff' : '#dcdcaa',
+                  transparent: true,
+                  opacity,
+                  depthWrite: false,
+                });
+                materials.push(material);
+                const flare = new THREE.Mesh(
+                  new THREE.TorusGeometry(
+                    radius,
+                    radius === 7 ? 0.5 : 0.18,
+                    8,
+                    72,
+                  ),
+                  material,
+                );
+                flare.rotation.x = radius === 13 ? Math.PI / 2.8 : 0;
+                flare.rotation.y = radius === 19 ? Math.PI / 3.2 : 0;
+                burst.add(flare);
+              }
+              group.userData.birthBurst = burst;
+              group.userData.birthMaterials = materials;
+              group.add(burst);
+            }
             return group;
           })
           .linkColor((link) => {
@@ -895,9 +939,13 @@ export function GraphStage({
               ? hexToRgba(source.color, 0.2 + link.score * 0.22)
               : 'rgba(133,133,133,.12)';
           })
-          .linkWidth((link) =>
-            isHoverIncident(link) ? 0.72 : isSelectedIncident(link) ? 0.88 : 0,
-          )
+          .linkWidth((link) => {
+            if (isHoverIncident(link)) return 0.82;
+            if (isSelectedIncident(link)) return 0.96;
+            if (isPrimaryTreeLink(link)) return 0.42;
+            if (isFocusedCrossLink(link)) return 0.18;
+            return gravityLayoutRef.current ? 0.07 : 0.13 + link.score * 0.16;
+          })
           .linkOpacity(1)
           .linkDirectionalParticles(() => 0)
           .linkDirectionalParticleWidth(() => 0)
@@ -1309,6 +1357,8 @@ export function GraphStage({
         window.cancelAnimationFrame(clickFallbackFrameRef.current);
       if (selectionFocusFrameRef.current !== null)
         window.cancelAnimationFrame(selectionFocusFrameRef.current);
+      if (birthAnimationFrameRef.current !== null)
+        window.cancelAnimationFrame(birthAnimationFrameRef.current);
       nodeObjects.clear();
       if (mountedGraph) {
         mountedGraph
@@ -1880,6 +1930,65 @@ export function GraphStage({
     viewportVersion,
     layoutSettledVersion,
   ]);
+
+  useEffect(() => {
+    if (!graphMounted || !birthNodeId || !birthVersion) return;
+    const group = nodeObjectRefs.current.get(birthNodeId);
+    const graph = graphRef.current;
+    if (!group || !graph) return;
+    const burst = group.userData.birthBurst as
+      | import('three').Group
+      | undefined;
+    const materials = (group.userData.birthMaterials ?? []) as Array<{
+      opacity: number;
+    }>;
+    if (reducedMotionRef.current) {
+      group.scale.setScalar(1);
+      if (burst) burst.visible = false;
+      graph.refresh();
+      return;
+    }
+    const initialOpacities = materials.map((material) => material.opacity);
+    const startedAt = performance.now();
+    const duration = 1500;
+    group.scale.setScalar(0.04);
+    const animateBirth = (timestamp: number) => {
+      const progress = Math.max(
+        0,
+        Math.min(1, (timestamp - startedAt) / duration),
+      );
+      const scale =
+        progress < 0.68
+          ? 1.22 * (1 - Math.pow(1 - progress / 0.68, 3))
+          : 1.22 - 0.22 * ((progress - 0.68) / 0.32);
+      group.scale.setScalar(Math.max(0.04, scale));
+      if (burst) {
+        burst.scale.setScalar(0.3 + progress * 2.7);
+        burst.rotation.z = progress * Math.PI * 0.7;
+      }
+      materials.forEach((material, index) => {
+        material.opacity =
+          initialOpacities[index] * Math.pow(1 - progress, 1.7);
+      });
+      graph.refresh();
+      if (progress < 1)
+        birthAnimationFrameRef.current =
+          window.requestAnimationFrame(animateBirth);
+      else {
+        birthAnimationFrameRef.current = null;
+        group.scale.setScalar(1);
+        if (burst) burst.visible = false;
+        graph.refresh();
+      }
+    };
+    birthAnimationFrameRef.current = window.requestAnimationFrame(animateBirth);
+    return () => {
+      if (birthAnimationFrameRef.current !== null)
+        window.cancelAnimationFrame(birthAnimationFrameRef.current);
+      birthAnimationFrameRef.current = null;
+      group.scale.setScalar(1);
+    };
+  }, [birthNodeId, birthVersion, graphMounted]);
 
   return (
     <div
