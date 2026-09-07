@@ -8,6 +8,7 @@ export const llmPolicy = {
   requestedModel: 'GPT 5.6 Luna',
   modelId: 'openai/gpt-5.6-luna',
   reasoning: 'maximum-supported',
+  generationTimeoutMs: 180_000,
   retrieval: 'rank-without-taxonomy-gates',
   extraContentFilters: false,
   preservePrivacyAndAccessControls: true,

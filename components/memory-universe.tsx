@@ -80,23 +80,52 @@ type IssuesPayload = {
 };
 
 async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(
-    path,
-    body === undefined
-      ? { cache: 'no-store' }
-      : {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        },
-  );
-  const data = await response.json();
-  if (!response.ok)
+  let response: Response;
+  try {
+    response = await fetch(
+      path,
+      body === undefined
+        ? { cache: 'no-store' }
+        : {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          },
+    );
+  } catch {
     throw new Error(
+      '서버와 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.',
+    );
+  }
+  const raw = await response.text();
+  let data: unknown = null;
+  if (raw)
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = null;
+    }
+  if (!response.ok) {
+    const providerMessage =
+      data &&
+      typeof data === 'object' &&
+      'error' in data &&
+      typeof data.error === 'string'
+        ? data.error
+        : '';
+    const fallback =
       response.status === 401
         ? '로그인이 필요합니다.'
-        : (data as { error?: string }).error || '요청에 실패했습니다.',
-    );
+        : response.status === 429
+          ? 'AI 요청이 많습니다. 잠시 후 다시 시도해 주세요.'
+          : response.status === 504
+            ? 'AI 최대 추론이 3분 안에 완료되지 않았습니다.'
+            : response.status >= 500
+              ? 'AI 서비스 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
+              : '요청에 실패했습니다.';
+    throw new Error(providerMessage || fallback);
+  }
+  if (data === null) throw new Error('서버 응답 형식을 확인하지 못했습니다.');
   return data as T;
 }
 const shortId = (id: string) =>
@@ -566,7 +595,9 @@ function InsightDialog({
   analysis,
   testPlan,
   busy,
+  failure,
   onMode,
+  onRetry,
   onClose,
   onEvidence,
 }: {
@@ -575,7 +606,9 @@ function InsightDialog({
   analysis: IssueAnalysisResponse | null;
   testPlan: IssueTestPlanResponse | null;
   busy: 'analysis' | 'test-cases' | null;
+  failure: string;
   onMode: (mode: 'analysis' | 'test-cases') => void;
+  onRetry: () => void;
   onClose: () => void;
   onEvidence: (id: string) => void;
 }) {
@@ -625,19 +658,28 @@ function InsightDialog({
           </button>
         </div>
         {busy === mode && (
-          <div className="insight-loading">
+          <output className="insight-loading" aria-live="polite">
             <LoaderCircle className="animate-spin" />
             <strong>
               {mode === 'analysis'
-                ? '관련 이력을 분석하는 중…'
-                : '검증 시나리오를 만드는 중…'}
+                ? '최대 추론으로 관련 이력을 분석하는 중…'
+                : '최대 추론으로 검증 시나리오를 만드는 중…'}
             </strong>
             <span>
-              처음 선택한 이슈와 연결된 완료 이력을 자동으로 확인합니다.
+              보통 1~3분이 걸립니다. 새로고침하면 결과를 받을 수 없습니다.
             </span>
+          </output>
+        )}
+        {!busy && failure && (
+          <div className="insight-empty" role="alert">
+            <strong>AI 결과를 만들지 못했습니다.</strong>
+            <p>{failure}</p>
+            <Button size="sm" variant="outline" onClick={onRetry}>
+              다시 시도
+            </Button>
           </div>
         )}
-        {!busy && !current && (
+        {!busy && !failure && !current && (
           <div className="insight-empty">
             아직 생성하지 않은 결과입니다. 그래프 위의 버튼으로 생성해 주세요.
           </div>
@@ -778,6 +820,10 @@ export function MemoryUniverse() {
   const [insightBusy, setInsightBusy] = useState<
     'analysis' | 'test-cases' | null
   >(null);
+  const [insightFailure, setInsightFailure] = useState<{
+    mode: 'analysis' | 'test-cases';
+    message: string;
+  } | null>(null);
   const [contextBusy, setContextBusy] = useState(false);
   const [pendingBirthIds, setPendingBirthIds] = useState<Set<string>>(
     new Set(),
@@ -1212,6 +1258,7 @@ export function MemoryUniverse() {
     if (!contextRoot || insightBusy) return;
     setInsightMode(kind);
     setInsightBusy(kind);
+    setInsightFailure(null);
     setError('');
     try {
       if (kind === 'analysis') {
@@ -1228,8 +1275,7 @@ export function MemoryUniverse() {
         setTestPlan(response);
       }
     } catch (cause) {
-      setError((cause as Error).message);
-      setInsightMode(null);
+      setInsightFailure({ mode: kind, message: (cause as Error).message });
     } finally {
       setInsightBusy(null);
     }
@@ -1658,7 +1704,9 @@ export function MemoryUniverse() {
                   onClick={() => void generateBrief()}
                 >
                   {briefBusy && <LoaderCircle className="animate-spin" />}
-                  {briefBusy ? '근거를 해석하는 중…' : 'AI History Brief 생성'}
+                  {briefBusy
+                    ? '최대 추론 중 · 최대 3분'
+                    : 'AI History Brief 생성'}
                 </Button>
                 <small>
                   생성 시 현재 이슈와 선택·수집한 이력이 OpenRouter에
@@ -1828,7 +1876,7 @@ export function MemoryUniverse() {
                 size="sm"
                 variant="outline"
                 onClick={() => void generateInsight('analysis')}
-                disabled={Boolean(insightBusy)}
+                disabled={Boolean(insightBusy) || !llmStatus?.ready}
               >
                 {insightBusy === 'analysis' ? (
                   <LoaderCircle className="animate-spin" />
@@ -1841,7 +1889,7 @@ export function MemoryUniverse() {
                 size="sm"
                 variant="outline"
                 onClick={() => void generateInsight('test-cases')}
-                disabled={Boolean(insightBusy)}
+                disabled={Boolean(insightBusy) || !llmStatus?.ready}
               >
                 {insightBusy === 'test-cases' ? (
                   <LoaderCircle className="animate-spin" />
@@ -2281,9 +2329,11 @@ export function MemoryUniverse() {
                     ) : (
                       <Network />
                     )}
-                    {selectedArtifact?.compileStatus === 'ready'
-                      ? 'AI 기억 갱신'
-                      : 'AI 기억 생성'}
+                    {compilingIds.has(selected.id)
+                      ? '최대 추론 중 · 최대 3분'
+                      : selectedArtifact?.compileStatus === 'ready'
+                        ? 'AI 기억 갱신'
+                        : 'AI 기억 생성'}
                   </Button>
                 </div>
               )}
@@ -2327,6 +2377,9 @@ export function MemoryUniverse() {
           analysis={analysis}
           testPlan={testPlan}
           busy={insightBusy}
+          failure={
+            insightFailure?.mode === insightMode ? insightFailure.message : ''
+          }
           onMode={(mode) => {
             if (mode === 'analysis' && !analysis) {
               void generateInsight(mode);
@@ -2337,12 +2390,18 @@ export function MemoryUniverse() {
               return;
             }
             setInsightMode(mode);
+            setInsightFailure(null);
           }}
-          onClose={() => setInsightMode(null)}
+          onRetry={() => void generateInsight(insightMode)}
+          onClose={() => {
+            setInsightMode(null);
+            setInsightFailure(null);
+          }}
           onEvidence={(id) => {
             const issue = byId.get(id);
             if (!issue) return;
             setInsightMode(null);
+            setInsightFailure(null);
             inspectIssue(issue);
           }}
         />

@@ -216,7 +216,7 @@ async function generateIssueInsight(
               : 'Websidian test cases',
         },
         body: JSON.stringify(buildIssueInsightRequest(model, context, kind)),
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(llmPolicy.generationTimeoutMs),
         redirect: 'manual',
       },
     );
@@ -275,7 +275,7 @@ async function generateIssueInsight(
       ['AbortError', 'TimeoutError'].includes(error.name)
     )
       throw new BriefError(
-        'AI 생성 시간이 초과되었습니다. 자동 재요청하지 않았습니다.',
+        'AI 최대 추론이 3분 안에 완료되지 않았습니다. 자동 재요청하지 않았습니다.',
         504,
       );
     throw new BriefError('AI 서비스 연결에 실패했습니다.', 503);
@@ -330,7 +330,7 @@ export async function generateBrief(
           'X-OpenRouter-Title': 'Websidian issue history',
         },
         body: JSON.stringify(buildOpenRouterRequest(model, context)),
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(llmPolicy.generationTimeoutMs),
         redirect: 'manual',
       },
     );
@@ -386,7 +386,7 @@ export async function generateBrief(
       ['AbortError', 'TimeoutError'].includes(error.name)
     )
       throw new BriefError(
-        'AI 생성 시간이 초과되었습니다. 자동 재요청하지 않았습니다.',
+        'AI 최대 추론이 3분 안에 완료되지 않았습니다. 자동 재요청하지 않았습니다.',
         504,
       );
     throw new BriefError(
@@ -428,7 +428,7 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
           'X-OpenRouter-Title': 'Websidian memory compiler',
         },
         body: JSON.stringify(buildMemoryCompileRequest(model, issue)),
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(llmPolicy.generationTimeoutMs),
         redirect: 'manual',
       },
     );
@@ -482,7 +482,7 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
       ['AbortError', 'TimeoutError'].includes(error.name)
     )
       throw new MemoryArtifactError(
-        'AI 기억 컴파일 시간이 초과되었습니다.',
+        'AI 기억 컴파일이 3분 안에 완료되지 않았습니다.',
         504,
       );
     throw new MemoryArtifactError('AI 기억 서비스 연결에 실패했습니다.', 503);

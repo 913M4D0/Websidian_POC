@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   BriefError,
@@ -10,6 +11,7 @@ import {
   type BriefEvidence,
 } from '../lib/brief-contract.ts';
 import type { Issue } from '../lib/issues.ts';
+import { llmPolicy } from '../lib/llm-policy.ts';
 
 const catalog = {
   data: [
@@ -140,6 +142,20 @@ void test('model selection preserves exact Luna and highest advertised effort wi
     () => verifyRequestedModel(noReasoningMetadata, 'openai/gpt-5.6-luna'),
     BriefError,
   );
+});
+
+void test('every chat path allows maximum reasoning to run for three minutes', () => {
+  assert.equal(llmPolicy.generationTimeoutMs, 180_000);
+  const source = readFileSync(
+    new URL('../lib/llm-server.ts', import.meta.url),
+    'utf8',
+  );
+  assert.equal(
+    source.match(/AbortSignal\.timeout\(llmPolicy\.generationTimeoutMs\)/g)
+      ?.length,
+    3,
+  );
+  assert.doesNotMatch(source, /AbortSignal\.timeout\(45_000\)/);
 });
 
 void test('validated Brief distinguishes facts/inference and rejects invented citations or output fields', () => {
