@@ -42,7 +42,7 @@ void test('first universe contains every issue with open work visibly separated'
   )!;
   assert.equal(projection.name, canonical.title);
   assert.equal(projection.issueKey, canonical.id);
-  assert.equal(projection.color, '#d7ba7d');
+  assert.equal(projection.color, '#ffffff');
   assert.equal(new Set(working.nodes.map((node) => node.issueId)).size, 294);
 });
 
@@ -185,6 +185,22 @@ void test('ordered nebula is deterministic, finite, unique, and grows outward wi
       return sum + Math.hypot(point.x, point.y, point.z);
     }, 0) / records.length;
   assert.ok(meanRadius(ordered.slice(-24)) > meanRadius(ordered.slice(0, 24)));
+  const armOccupancy = Array.from({ length: 5 }, () => 0);
+  ordered.forEach((node, index) => {
+    const point = first.get(node.id)!;
+    const progress = (index + 0.5) / ordered.length;
+    let phase =
+      Math.atan2(point.y / 0.7, point.x / 1.1) - progress * Math.PI * 3.2;
+    phase = ((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    armOccupancy[
+      Math.round((phase / (Math.PI * 2)) * armOccupancy.length) %
+        armOccupancy.length
+    ] += 1;
+  });
+  assert.ok(
+    Math.max(...armOccupancy) - Math.min(...armOccupancy) <= 12,
+    `unbalanced nebula arms: ${armOccupancy.join(',')}`,
+  );
 });
 
 void test('recorded completion evidence survives the edge budget without implying similarity or causality', () => {

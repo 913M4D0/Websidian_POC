@@ -9,7 +9,6 @@ import {
   type GravityLayout,
 } from '@/lib/gravity-layout';
 import {
-  getClusters,
   linkEndpointId,
   type MemoryLink,
   type MemoryNode,
@@ -99,7 +98,7 @@ type GraphInstance = {
     y: number,
     z: number,
   ) => { x: number; y: number };
-  scene: () => { add: (object: unknown) => void };
+  scene: () => import('three').Scene;
   refresh: () => GraphInstance;
   pauseAnimation: () => GraphInstance;
   _destructor?: () => void;
@@ -142,6 +141,27 @@ function escapeGraphLabel(value: string) {
         "'": '&#039;',
       })[character] ?? character,
   );
+}
+
+function graphSeed(value: string) {
+  let seed = 2166136261;
+  for (const character of value) {
+    seed ^= character.charCodeAt(0);
+    seed = Math.imul(seed, 16777619);
+  }
+  return seed >>> 0;
+}
+
+function seededGraphRandom(initialSeed: number) {
+  let seed = initialSeed;
+  return () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+}
+
+function compactGraphTitle(value: string) {
+  return value.length > 28 ? `${value.slice(0, 27)}…` : value;
 }
 
 function measureGraphSafeRect(container: HTMLElement): GraphSafeRect {
@@ -344,6 +364,13 @@ export function GraphStage({
   const nodeObjectRefs = useRef<Map<string, import('three').Group>>(new Map());
   const neighborIdsRef = useRef<Map<string, Set<string>>>(new Map());
   const nebulaMaterialsRef = useRef<Array<{ opacity: number }>>([]);
+  const nebulaObjectsRef = useRef<
+    Array<{
+      points: import('three').Points;
+      geometry: import('three').BufferGeometry;
+      material: import('three').PointsMaterial;
+    }>
+  >([]);
   const floorMaterialsRef = useRef<Array<{ opacity: number }>>([]);
   const floorGroupRef = useRef<import('three').Group | null>(null);
   const gravityCameraRef = useRef<{
@@ -396,6 +423,8 @@ export function GraphStage({
     let resizeObserver: ResizeObserver | null = null;
     let motionQuery: MediaQueryList | null = null;
     let disposePointerInteraction: (() => void) | null = null;
+    let softGlowTexture: import('three').CanvasTexture | null = null;
+    let activeGlowTexture: import('three').CanvasTexture | null = null;
     const nodeObjects = nodeObjectRefs.current;
     const updateMotionPreference = (
       event: MediaQueryListEvent | MediaQueryList,
@@ -467,6 +496,47 @@ export function GraphStage({
         ]);
         if (cancelled || !containerRef.current) return;
         threeRef.current = THREE;
+        const createGlowTexture = (withFlare: boolean) => {
+          const surface = document.createElement('canvas');
+          surface.width = 128;
+          surface.height = 128;
+          const context = surface.getContext('2d');
+          if (context) {
+            const glow = context.createRadialGradient(64, 64, 1, 64, 64, 62);
+            glow.addColorStop(0, 'rgba(255,255,255,1)');
+            glow.addColorStop(0.08, 'rgba(255,255,255,.92)');
+            glow.addColorStop(0.28, 'rgba(255,255,255,.3)');
+            glow.addColorStop(0.62, 'rgba(255,255,255,.075)');
+            glow.addColorStop(1, 'rgba(255,255,255,0)');
+            context.fillStyle = glow;
+            context.fillRect(0, 0, 128, 128);
+            if (withFlare) {
+              context.globalCompositeOperation = 'screen';
+              const horizontal = context.createLinearGradient(0, 64, 128, 64);
+              horizontal.addColorStop(0, 'rgba(255,255,255,0)');
+              horizontal.addColorStop(0.47, 'rgba(255,255,255,.08)');
+              horizontal.addColorStop(0.5, 'rgba(255,255,255,.88)');
+              horizontal.addColorStop(0.53, 'rgba(255,255,255,.08)');
+              horizontal.addColorStop(1, 'rgba(255,255,255,0)');
+              context.fillStyle = horizontal;
+              context.fillRect(0, 61, 128, 6);
+              const vertical = context.createLinearGradient(64, 0, 64, 128);
+              vertical.addColorStop(0, 'rgba(255,255,255,0)');
+              vertical.addColorStop(0.47, 'rgba(255,255,255,.05)');
+              vertical.addColorStop(0.5, 'rgba(255,255,255,.68)');
+              vertical.addColorStop(0.53, 'rgba(255,255,255,.05)');
+              vertical.addColorStop(1, 'rgba(255,255,255,0)');
+              context.fillStyle = vertical;
+              context.fillRect(61, 0, 6, 128);
+            }
+          }
+          const texture = new THREE.CanvasTexture(surface);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.needsUpdate = true;
+          return texture;
+        };
+        softGlowTexture = createGlowTexture(false);
+        activeGlowTexture = createGlowTexture(true);
         const finePointer = window.matchMedia(
           '(hover: hover) and (pointer: fine)',
         );
@@ -673,6 +743,12 @@ export function GraphStage({
           );
         };
 
+        const isActiveIncident = (link: MemoryLink) => {
+          const source = nodeById.get(linkEndpointId(link.source));
+          const target = nodeById.get(linkEndpointId(link.target));
+          return source?.phase === 'active' || target?.phase === 'active';
+        };
+
         const isPrimaryTreeLink = (link: MemoryLink) => {
           return (
             gravityLayoutRef.current?.primaryLinkKeys.has(
@@ -704,7 +780,7 @@ export function GraphStage({
           .nodeId('id')
           .nodeLabel(
             (node) =>
-              `<div class="graph-tooltip"><span>${node.phase === 'active' ? '진행 중 · 탐색 기준 이슈' : '처리 완료 · 이슈 기억'}</span><strong>${escapeGraphLabel(node.issueKey)}</strong><p>${escapeGraphLabel(node.name)}</p></div>`,
+              `<div class="graph-tooltip"><span>${node.phase === 'active' ? '진행 중 · 처리 전 이슈' : '처리 완료 · 이슈 기억'}</span><strong>${escapeGraphLabel(node.issueKey)}</strong><p>${escapeGraphLabel(node.name)}</p></div>`,
           )
           .nodeColor((node) => {
             const state = stateRef.current;
@@ -793,6 +869,38 @@ export function GraphStage({
             const showNeighborLabel = getNeighborLabelIds().has(node.id);
             const group = new THREE.Group();
             nodeObjects.set(node.id, group);
+            const haloTexture = isActive ? activeGlowTexture : softGlowTexture;
+            if (haloTexture) {
+              const halo = new THREE.Sprite(
+                new THREE.SpriteMaterial({
+                  map: haloTexture,
+                  color: node.color,
+                  transparent: true,
+                  opacity: isSelected
+                    ? 1
+                    : isRoot
+                      ? 0.86
+                      : isHovered
+                        ? 0.72
+                        : isActive
+                          ? 0.78
+                          : 0.2,
+                  blending: THREE.AdditiveBlending,
+                  depthWrite: false,
+                  toneMapped: false,
+                }),
+              );
+              const haloSize = isSelected
+                ? isActive
+                  ? 32
+                  : 20
+                : isActive
+                  ? 24
+                  : 11 + node.importance * 4;
+              halo.scale.set(haloSize, haloSize, 1);
+              halo.renderOrder = 1;
+              group.add(halo);
+            }
             if (
               !(
                 isSelected ||
@@ -804,11 +912,14 @@ export function GraphStage({
               )
             )
               return group;
+            const detailedLabel = isSelected || isRoot || isHovered || isBorn;
             const sprite = new SpriteText(
-              isActive ? `진행 중 · ${node.issueKey}` : node.issueKey,
+              `${isActive ? '진행 · ' : ''}${node.issueKey}${
+                detailedLabel ? `\n${compactGraphTitle(node.name)}` : ''
+              }`,
             );
             sprite.color = isActive
-              ? '#e8d5af'
+              ? '#ffffff'
               : isBorn
                 ? '#ffffff'
                 : isHovered
@@ -818,7 +929,7 @@ export function GraphStage({
                     : isRoot
                       ? '#f3f3f3'
                       : node.color;
-            sprite.textHeight = depth === 1 || showNeighborLabel ? 2.7 : 3.2;
+            sprite.textHeight = depth === 1 || showNeighborLabel ? 2.7 : 3.1;
             sprite.fontWeight = '600';
             sprite.backgroundColor =
               isActive || isSelected || isRoot || isHovered || isBorn
@@ -829,12 +940,12 @@ export function GraphStage({
                 ? [3, 5]
                 : 0;
             sprite.borderRadius = 1;
-            sprite.position.y = isActive ? 13 : 8;
+            sprite.position.y = isActive ? 14 : detailedLabel ? 10 : 8;
             group.add(sprite);
 
             if (isActive || isSelected || isRoot || isHovered || isBorn) {
               const ringColor = isActive
-                ? '#d7ba7d'
+                ? '#ffffff'
                 : isHovered
                   ? '#dcdcaa'
                   : node.color;
@@ -854,8 +965,8 @@ export function GraphStage({
                     : 0.11;
               const ring = new THREE.Mesh(
                 new THREE.TorusGeometry(
-                  isActive ? 10.5 : 8.5,
-                  isActive ? 0.21 : isSelected ? 0.15 : 0.12,
+                  isActive ? 10 : 8.5,
+                  isSelected ? 0.24 : isActive ? 0.15 : 0.12,
                   8,
                   64,
                 ),
@@ -867,7 +978,7 @@ export function GraphStage({
               );
               const orbit = new THREE.Mesh(
                 new THREE.TorusGeometry(
-                  isActive ? 12 : 9.8,
+                  isActive ? 12.2 : 9.8,
                   isSelected ? 0.07 : 0.055,
                   7,
                   64,
@@ -880,7 +991,8 @@ export function GraphStage({
               );
               orbit.position.set(0.45, -0.3, -0.25);
               orbit.rotation.z = Math.PI * 0.025;
-              group.add(ring, orbit);
+              group.add(ring);
+              if (isSelected || isRoot || isHovered || isBorn) group.add(orbit);
             }
             if (isBorn) {
               const burst = new THREE.Group();
@@ -917,8 +1029,8 @@ export function GraphStage({
             return group;
           })
           .linkColor((link) => {
-            if (isHoverIncident(link)) return 'rgba(220,220,170,.86)';
-            if (isSelectedIncident(link)) return 'rgba(230,230,230,.82)';
+            if (isSelectedIncident(link)) return 'rgba(245,248,252,.9)';
+            if (isHoverIncident(link)) return 'rgba(220,220,190,.68)';
             if (isPrimaryTreeLink(link)) {
               const gravity = gravityLayoutRef.current;
               const depth = Math.max(
@@ -928,23 +1040,25 @@ export function GraphStage({
               return `rgba(86,156,214,${depth <= 1 ? 0.46 : depth === 2 ? 0.29 : 0.17})`;
             }
             if (isFocusedCrossLink(link)) return 'rgba(197,134,192,.13)';
-            const source = nodeById.get(linkEndpointId(link.source));
-            if (gravityLayoutRef.current) return 'rgba(133,133,133,.12)';
+            if (gravityLayoutRef.current) return 'rgba(133,148,162,.08)';
             if (
               stateRef.current.activeCluster &&
-              source?.cluster !== stateRef.current.activeCluster
+              nodeById.get(linkEndpointId(link.source))?.cluster !==
+                stateRef.current.activeCluster
             )
-              return 'rgba(133,133,133,.06)';
-            return source
-              ? hexToRgba(source.color, 0.2 + link.score * 0.22)
-              : 'rgba(133,133,133,.12)';
+              return 'rgba(123,137,151,.05)';
+            if (isActiveIncident(link))
+              return `rgba(237,243,249,${0.14 + link.score * 0.1})`;
+            return `rgba(132,153,174,${0.075 + link.score * 0.13})`;
           })
           .linkWidth((link) => {
-            if (isHoverIncident(link)) return 0.82;
-            if (isSelectedIncident(link)) return 0.96;
+            if (isSelectedIncident(link)) return 1.05;
+            if (isHoverIncident(link)) return 0.78;
             if (isPrimaryTreeLink(link)) return 0.42;
-            if (isFocusedCrossLink(link)) return 0.18;
-            return gravityLayoutRef.current ? 0.07 : 0.13 + link.score * 0.16;
+            if (isFocusedCrossLink(link)) return 0.15;
+            if (gravityLayoutRef.current) return 0.06;
+            if (isActiveIncident(link)) return 0.1 + link.score * 0.12;
+            return 0.07 + link.score * 0.1;
           })
           .linkOpacity(1)
           .linkDirectionalParticles(() => 0)
@@ -1091,55 +1205,62 @@ export function GraphStage({
         if (initialFrame)
           graph.cameraPosition(initialFrame.position, initialFrame.target, 0);
 
-        const nebulaMaterials: Array<{ opacity: number }> = [];
-        for (const cluster of getClusters(nodesRef.current)) {
-          const members = nodesRef.current.filter(
-            (node) => node.cluster === cluster.id,
-          );
-          const center = members.reduce(
-            (p, node) => {
-              const q = nebulaPositionsRef.current.get(node.id)!;
-              return {
-                x: p.x + q.x / members.length,
-                y: p.y + q.y / members.length,
-                z: p.z + q.z / members.length,
-              };
-            },
-            { x: 0, y: 0, z: 0 },
-          );
-          const dustGeometry = new THREE.BufferGeometry();
-          const dust = new Float32Array(72 * 3);
-          let seed = 913 + cluster.lane * 177;
-          const random = () => {
-            seed = (seed * 1664525 + 1013904223) >>> 0;
-            return seed / 4294967296;
-          };
-          for (let index = 0; index < 72; index += 1) {
-            const radius = Math.pow(random(), 0.72);
+        const dustPositions: number[] = [];
+        const dustColours: number[] = [];
+        const coolMist = new THREE.Color('#aebfce');
+        for (const node of nodesRef.current) {
+          const center = nebulaPositionsRef.current.get(node.id);
+          if (!center) continue;
+          const random = seededGraphRandom(graphSeed(`dust:${node.id}`));
+          const dustCount = node.phase === 'active' ? 4 : 6;
+          const baseColour = new THREE.Color(node.color);
+          if (node.phase === 'memory') baseColour.lerp(coolMist, 0.54);
+          for (let index = 0; index < dustCount; index += 1) {
+            const radius =
+              Math.pow(random(), 0.62) * (node.phase === 'active' ? 14 : 25);
             const theta = random() * Math.PI * 2;
-            const phi = Math.acos(2 * random() - 1);
-            dust[index * 3] =
-              center.x + Math.sin(phi) * Math.cos(theta) * radius * 102;
-            dust[index * 3 + 1] =
-              center.y + Math.sin(phi) * Math.sin(theta) * radius * 66;
-            dust[index * 3 + 2] = center.z + Math.cos(phi) * radius * 92;
+            const depth = (random() * 2 - 1) * radius * 0.72;
+            dustPositions.push(
+              center.x + Math.cos(theta) * radius,
+              center.y + Math.sin(theta) * radius * 0.52,
+              center.z + depth,
+            );
+            const colour = baseColour
+              .clone()
+              .multiplyScalar(0.66 + random() * 0.34);
+            dustColours.push(colour.r, colour.g, colour.b);
           }
-          dustGeometry.setAttribute(
-            'position',
-            new THREE.BufferAttribute(dust, 3),
-          );
-          const material = new THREE.PointsMaterial({
-            color: cluster.color,
-            size: 0.72,
-            transparent: true,
-            opacity: 0.065,
-            sizeAttenuation: true,
-            depthWrite: false,
-          });
-          nebulaMaterials.push(material);
-          graph.scene().add(new THREE.Points(dustGeometry, material));
         }
-        nebulaMaterialsRef.current = nebulaMaterials;
+        const dustGeometry = new THREE.BufferGeometry();
+        dustGeometry.setAttribute(
+          'position',
+          new THREE.Float32BufferAttribute(dustPositions, 3),
+        );
+        dustGeometry.setAttribute(
+          'color',
+          new THREE.Float32BufferAttribute(dustColours, 3),
+        );
+        const dustMaterial = new THREE.PointsMaterial({
+          size: 0.82,
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.12,
+          sizeAttenuation: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false,
+        });
+        const dustPoints = new THREE.Points(dustGeometry, dustMaterial);
+        dustPoints.renderOrder = -1;
+        graph.scene().add(dustPoints);
+        nebulaMaterialsRef.current = [dustMaterial];
+        nebulaObjectsRef.current = [
+          {
+            points: dustPoints,
+            geometry: dustGeometry,
+            material: dustMaterial,
+          },
+        ];
 
         const floorGroup = new THREE.Group();
         const floorPlaneMaterial = new THREE.MeshBasicMaterial({
@@ -1359,6 +1480,15 @@ export function GraphStage({
         window.cancelAnimationFrame(selectionFocusFrameRef.current);
       if (birthAnimationFrameRef.current !== null)
         window.cancelAnimationFrame(birthAnimationFrameRef.current);
+      for (const nebula of nebulaObjectsRef.current) {
+        mountedGraph?.scene().remove(nebula.points);
+        nebula.geometry.dispose();
+        nebula.material.dispose();
+      }
+      nebulaObjectsRef.current = [];
+      nebulaMaterialsRef.current = [];
+      softGlowTexture?.dispose();
+      activeGlowTexture?.dispose();
       nodeObjects.clear();
       if (mountedGraph) {
         mountedGraph
@@ -1653,7 +1783,7 @@ export function GraphStage({
       .d3ReheatSimulation();
     const duration = reducedMotionRef.current ? 1 : gravityRootId ? 920 : 680;
     const startedAt = performance.now();
-    const nebulaStartOpacity = nebulaMaterialsRef.current[0]?.opacity ?? 0.065;
+    const nebulaStartOpacity = nebulaMaterialsRef.current[0]?.opacity ?? 0.12;
     const floorStartOpacity = floorMaterialsRef.current[0]?.opacity ?? 0;
     const easeOut = (value: number) => 1 - Math.pow(1 - value, 3);
     const easeInOut = (value: number) =>
@@ -1720,7 +1850,7 @@ export function GraphStage({
       }
 
       const materialProgress = easeOut(overall);
-      const nebulaTargetOpacity = gravityRootId ? 0.014 : 0.065;
+      const nebulaTargetOpacity = gravityRootId ? 0.018 : 0.12;
       const floorTargetOpacity = gravityRootId ? 0.07 : 0;
       for (const material of nebulaMaterialsRef.current)
         material.opacity =

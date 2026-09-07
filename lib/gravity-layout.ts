@@ -95,9 +95,9 @@ export function memoryLinkKey(link: MemoryLink) {
 }
 
 /**
- * Stable ordered nebula. A Vogel spiral supplies visible rhythm, chronology
- * expands from the centre, and a bounded link relaxation keeps related issues
- * near one another without destroying the constellation's structure.
+ * Stable five-arm issue nebula. Time expands from the centre, team grouping
+ * keeps recurring work on the same arm, and bounded force relaxation draws
+ * related issues together without destroying the reproducible silhouette.
  */
 export function createNebulaLayout(
   nodes: MemoryNode[],
@@ -110,19 +110,41 @@ export function createNebulaLayout(
   );
   const positions = new Map<string, GraphPosition>();
   const anchors = new Map<string, GraphPosition>();
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const clusterCounts = new Map<string, number>();
+  for (const node of ordered)
+    clusterCounts.set(node.cluster, (clusterCounts.get(node.cluster) ?? 0) + 1);
+  const armCount = Math.min(5, Math.max(1, clusterCounts.size));
+  const armLoads = Array.from({ length: armCount }, () => 0);
+  const armByCluster = new Map<string, number>();
+  for (const [cluster, count] of [...clusterCounts].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  )) {
+    let arm = 0;
+    for (let candidate = 1; candidate < armLoads.length; candidate += 1)
+      if (armLoads[candidate] < armLoads[arm]) arm = candidate;
+    armByCluster.set(cluster, arm);
+    armLoads[arm] += count;
+  }
+  const fullTurn = Math.PI * 2;
+  const outerRadius = Math.min(430, 342 + Math.sqrt(ordered.length) * 4.4);
   ordered.forEach((node, index) => {
     const progress = (index + 0.5) / Math.max(1, ordered.length);
-    const radius = 34 + 344 * Math.sqrt(progress);
+    const arm = armByCluster.get(node.cluster) ?? hash(node.cluster) % armCount;
+    const radius =
+      30 +
+      (outerRadius - 30) * Math.sqrt(progress) +
+      centeredNoise(node.issueId, 'spiral-radius') * 7;
     const angle =
-      index * goldenAngle + centeredNoise(node.issueId, 'spiral-angle') * 0.07;
-    const thickness = 25 + radius * 0.13;
+      (arm / armCount) * fullTurn +
+      progress * Math.PI * 3.2 +
+      centeredNoise(node.issueId, 'spiral-angle') * 0.12;
+    const thickness = 12 + radius * 0.09;
     const anchor = {
-      x: Math.cos(angle) * radius * 1.12,
-      y: Math.sin(angle) * radius * 0.69,
+      x: Math.cos(angle) * radius * 1.1,
+      y: Math.sin(angle) * radius * 0.7,
       z:
-        Math.sin(angle * 0.43) * thickness * 0.72 +
-        centeredNoise(node.issueId, 'spiral-depth') * thickness,
+        Math.sin(angle * 0.78 + arm * 0.61) * thickness * 0.34 +
+        centeredNoise(node.issueId, 'spiral-depth') * thickness * 0.82,
     };
     anchors.set(node.id, anchor);
     positions.set(node.id, { ...anchor });
@@ -162,8 +184,8 @@ export function createNebulaLayout(
         distance = Math.max(1, Math.hypot(dx, dy, dz));
       const desired = 46 + 62 * (1 - score);
       const force = Math.max(
-        -1.2,
-        Math.min(1.2, (distance - desired) * 0.009 * cooling),
+        -0.85,
+        Math.min(0.85, (distance - desired) * 0.006 * cooling),
       );
       a.x += (dx / distance) * force;
       a.y += (dy / distance) * force;
@@ -174,9 +196,9 @@ export function createNebulaLayout(
     }
     for (const [id, p] of positions) {
       const anchor = anchors.get(id)!;
-      p.x += (anchor.x - p.x) * 0.055;
-      p.y += (anchor.y - p.y) * 0.055;
-      p.z += (anchor.z - p.z) * 0.055;
+      p.x += (anchor.x - p.x) * 0.065;
+      p.y += (anchor.y - p.y) * 0.065;
+      p.z += (anchor.z - p.z) * 0.065;
     }
   }
   return positions;

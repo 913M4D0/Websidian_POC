@@ -94,8 +94,9 @@ function issueToNode(issue: Issue): MemoryNode {
     kind: 'issue',
     cluster: issue.team,
     clusterLabel: issue.team,
-    // Amber marks the work in progress; selection still changes brightness only.
-    color: issue.status === 'open' ? '#d7ba7d' : colorFor(issue.team),
+    // White is reserved for work in progress. Completed memories keep their
+    // team colour, while selection is expressed with size and halo intensity.
+    color: issue.status === 'open' ? '#ffffff' : colorFor(issue.team),
     occurredAt: issue.occurredAt,
     changedSources: issue.resources.map((resource) => resource.key),
     importance: 0.5,
@@ -171,7 +172,7 @@ function graphCandidates(issues: Issue[]) {
   return computed;
 }
 
-/** Every canonical issue is visible. Open work is an amber temporary phase;
+/** Every canonical issue is visible. Open work is a white temporary phase;
  * completion swaps only its renderer identity from active:* to memory:*.
  */
 export function createMemoryGraph(

@@ -136,18 +136,18 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid #665239;
+  border: 1px solid #555b62;
   border-radius: 4px;
-  background: #26231eeb;
+  background: #23262aeb;
   box-shadow: 0 8px 22px #0002;
 }
 .active-indicator {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #d7bd87;
+  background: #fff;
   flex: none;
-  box-shadow: 0 0 12px #cfab7050;
+  box-shadow: 0 0 12px #ffffff66;
 }
 .active-issue-bar > button:first-of-type {
   text-align: left;
@@ -156,7 +156,7 @@
 }
 .active-issue-bar small {
   font-size: 9px;
-  color: #ad9472;
+  color: #aeb7c0;
   display: block;
   margin-bottom: 3px;
 }
@@ -164,7 +164,7 @@
   font-size: 11px;
   font-weight: 450;
   line-height: 1.5;
-  color: #dbc9ac;
+  color: #f3f5f7;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -602,7 +602,7 @@
   color: #848484;
 }
 .status-open {
-  color: #d6b788 !important;
+  color: #f7f9fc !important;
   font-size: 10px;
 }
 .status-closed {
@@ -648,12 +648,9 @@
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  background: radial-gradient(
-    ellipse at 48% 47%,
-    #222529 0,
-    #1e2023 36%,
-    #1e1e1e 73%
-  );
+  background:
+    radial-gradient(ellipse at 48% 47%, #1b222a 0, #11161c 43%, #090c10 100%),
+    #090c10;
 }
 .graph-toolbar {
   position: absolute;
@@ -713,6 +710,26 @@
   display: flex;
   align-items: center;
   gap: 7px;
+}
+.graph-status-legend {
+  gap: 6px !important;
+}
+.node-swatch {
+  width: 7px;
+  height: 7px;
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
+}
+.node-swatch.is-active {
+  margin-left: 1px;
+  background: #fff;
+  box-shadow: 0 0 9px #ffffff9c;
+}
+.node-swatch.is-memory {
+  margin-left: 8px;
+  background: conic-gradient(#4ec9b0, #569cd6, #c586c0, #ce9178, #4ec9b0);
+  box-shadow: 0 0 7px #83a9bd55;
 }
 .graph-settings {
   display: flex;
@@ -1499,8 +1516,8 @@
   height: 9px;
   flex: none;
   border-radius: 50%;
-  background: #d7ba7d;
-  box-shadow: 0 0 16px #d7ba7d88;
+  background: #fff;
+  box-shadow: 0 0 16px #ffffff88;
 }
 .context-action-bar > button:first-of-type {
   min-width: 0;

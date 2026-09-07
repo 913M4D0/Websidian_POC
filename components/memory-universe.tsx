@@ -1441,7 +1441,7 @@ export function MemoryUniverse() {
                             style={{
                               color:
                                 issue.status === 'open'
-                                  ? '#d7ba7d'
+                                  ? '#ffffff'
                                   : colorFor(issue.team),
                             }}
                           >
@@ -1806,7 +1806,20 @@ export function MemoryUniverse() {
           </div>
           {contextRoot && (
             <div className="context-action-bar" data-graph-obstruction="top">
-              <span className="context-indicator" />
+              <span
+                className="context-indicator"
+                style={{
+                  backgroundColor:
+                    contextRoot.status === 'open'
+                      ? '#ffffff'
+                      : colorFor(contextRoot.team),
+                  boxShadow: `0 0 16px ${
+                    contextRoot.status === 'open'
+                      ? '#ffffff88'
+                      : `${colorFor(contextRoot.team)}88`
+                  }`,
+                }}
+              />
               <button onClick={() => inspectIssue(contextRoot)}>
                 <small>분석 기준 · {shortId(contextRoot.id)}</small>
                 <strong>{contextRoot.title}</strong>
@@ -1905,9 +1918,9 @@ export function MemoryUniverse() {
           )}
           <div className="graph-footer" data-graph-obstruction="bottom">
             <div className="graph-facts">
-              <span>
-                <i className="live-dot" />
-                {memoryCount} MEMORIES · {openCount} ACTIVE
+              <span className="graph-status-legend">
+                <i className="node-swatch is-active" /> 진행 {openCount}
+                <i className="node-swatch is-memory" /> 완료 {memoryCount}
               </span>
               <span>{graph.links.length} LINKS</span>
               <span>
@@ -1950,8 +1963,8 @@ export function MemoryUniverse() {
               </label>
             </div>
             <p>
-              배치: 시간 순서의 황금각 나선 + 내용·공통 자료 연결 · 호박색: 진행
-              중 · 트리 최대 3단계 · 선은 인과관계 확정이 아닙니다.
+              배치: 시간 반경의 5개 나선팔 + 관계 기반 인력 · 흰색: 진행 중 ·
+              색상: 완료 기억 · 트리 최대 3단계 · 선은 인과관계 확정이 아닙니다.
             </p>
             {submittedQuery && (
               <p>탐색 상위 12건을 밝게 표시 · 검색 결과 전체는 왼쪽에서 확인</p>
@@ -1971,7 +1984,7 @@ export function MemoryUniverse() {
                   style={{
                     color:
                       selected.status === 'open'
-                        ? '#d7ba7d'
+                        ? '#ffffff'
                         : colorFor(selected.team),
                   }}
                 />{' '}
