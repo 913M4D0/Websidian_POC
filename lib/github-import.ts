@@ -346,7 +346,7 @@ async function fetchPages(
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         signal: AbortSignal.timeout(15_000),
-        redirect: 'error',
+        redirect: 'manual',
       });
     } catch {
       throw new ApiError(503, 'GitHub에 연결하지 못했습니다.');

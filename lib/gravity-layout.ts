@@ -95,9 +95,9 @@ export function memoryLinkKey(link: MemoryLink) {
 }
 
 /**
- * Stable five-arm issue nebula. Time expands from the centre, team grouping
- * keeps recurring work on the same arm, and bounded force relaxation draws
- * related issues together without destroying the reproducible silhouette.
+ * Stable five-arm spherical issue nebula. Time expands from the centre while
+ * each team follows a helical path around a sphere; bounded force relaxation
+ * draws related issues together without flattening the reproducible volume.
  */
 export function createNebulaLayout(
   nodes: MemoryNode[],
@@ -134,21 +134,25 @@ export function createNebulaLayout(
       30 +
       (outerRadius - 30) * Math.sqrt(progress) +
       centeredNoise(node.issueId, 'spiral-radius') * 7;
-    const angle =
+    const azimuth =
       (arm / armCount) * fullTurn +
-      progress * Math.PI * 3.2 +
+      progress * Math.PI * 4.4 +
       centeredNoise(node.issueId, 'spiral-angle') * 0.12;
-    const thickness = 16 + radius * 0.22;
-    const spineLift =
-      Math.sin(angle * 0.72 + arm * (fullTurn / armCount)) *
-      (6 + radius * 0.12);
+    const latitudePhase =
+      progress * Math.PI * 3.4 + arm * (fullTurn / armCount) * 2;
+    const vertical = Math.max(
+      -0.93,
+      Math.min(
+        0.93,
+        Math.sin(latitudePhase) * 0.84 +
+          centeredNoise(node.issueId, 'spiral-latitude') * 0.07,
+      ),
+    );
+    const equator = Math.sqrt(Math.max(0, 1 - vertical * vertical));
     const anchor = {
-      x: Math.cos(angle) * radius * 1.1,
-      y: Math.sin(angle) * radius * 0.7,
-      z:
-        spineLift +
-        centeredNoise(node.issueId, 'spiral-depth') * thickness * 1.05 +
-        centeredNoise(node.issueId, 'spiral-depth-fine') * thickness * 0.36,
+      x: Math.cos(azimuth) * equator * radius,
+      y: vertical * radius,
+      z: Math.sin(azimuth) * equator * radius,
     };
     anchors.set(node.id, anchor);
     positions.set(node.id, { ...anchor });

@@ -92,7 +92,7 @@ async function verifiedEmbeddingModel() {
       try {
         const response = await fetch(
           'https://openrouter.ai/api/v1/embeddings/models',
-          { signal: AbortSignal.timeout(8000), redirect: 'error' },
+          { signal: AbortSignal.timeout(8000), redirect: 'manual' },
         );
         if (!response.ok) {
           await response.body?.cancel();
@@ -217,7 +217,7 @@ export async function embedTexts(
         },
       }),
       signal: AbortSignal.timeout(45_000),
-      redirect: 'error',
+      redirect: 'manual',
     });
     if (!response.ok) {
       await response.body?.cancel();

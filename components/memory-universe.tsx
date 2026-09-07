@@ -1209,7 +1209,7 @@ export function MemoryUniverse() {
     }
   }
   async function generateInsight(kind: 'analysis' | 'test-cases') {
-    if (!contextRoot || insightBusy || !llmStatus?.ready) return;
+    if (!contextRoot || insightBusy) return;
     setInsightMode(kind);
     setInsightBusy(kind);
     setError('');
@@ -1828,7 +1828,7 @@ export function MemoryUniverse() {
                 size="sm"
                 variant="outline"
                 onClick={() => void generateInsight('analysis')}
-                disabled={Boolean(insightBusy) || !llmStatus?.ready}
+                disabled={Boolean(insightBusy)}
               >
                 {insightBusy === 'analysis' ? (
                   <LoaderCircle className="animate-spin" />
@@ -1841,7 +1841,7 @@ export function MemoryUniverse() {
                 size="sm"
                 variant="outline"
                 onClick={() => void generateInsight('test-cases')}
-                disabled={Boolean(insightBusy) || !llmStatus?.ready}
+                disabled={Boolean(insightBusy)}
               >
                 {insightBusy === 'test-cases' ? (
                   <LoaderCircle className="animate-spin" />
@@ -1963,7 +1963,7 @@ export function MemoryUniverse() {
               </label>
             </div>
             <p>
-              배치: 시간 반경의 입체 5개 나선팔 + 관계 기반 인력 · 흰색: 진행 중
+              배치: 시간 반경의 구형 5개 나선팔 + 관계 기반 인력 · 흰색: 진행 중
               · 색상: 완료 기억 · 트리 최대 3단계 · 선은 인과관계 확정이
               아닙니다.
             </p>
@@ -2030,13 +2030,15 @@ export function MemoryUniverse() {
                     <RotateCcw /> 기준 이슈로 돌아가기
                   </Button>
                 )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => beginContext(selected)}
-                >
-                  <GitBranch /> 이 이슈를 새 기준으로
-                </Button>
+                {selected.id !== contextRoot?.id && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => beginContext(selected)}
+                  >
+                    <GitBranch /> 이 이슈를 새 기준으로
+                  </Button>
+                )}
               </div>
               <section>
                 <h3>이슈 원문</h3>
@@ -2231,12 +2233,14 @@ export function MemoryUniverse() {
                   </a>
                 </details>
               )}
-              <button
-                className="reroot-button"
-                onClick={() => beginContext(selected)}
-              >
-                이 이슈를 새 분석 기준으로 <GitBranch size={14} />
-              </button>
+              {selected.id !== contextRoot?.id && (
+                <button
+                  className="reroot-button"
+                  onClick={() => beginContext(selected)}
+                >
+                  이 이슈를 새 분석 기준으로 <GitBranch size={14} />
+                </button>
+              )}
             </div>
             <div className="inspector-bottom">
               {selected.status === 'open' ? (

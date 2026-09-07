@@ -242,8 +242,8 @@ function fitNebulaCamera(
   const centerY = (bottom + top) / 2;
   const orientationCamera = camera.clone();
   if (resetOrientation) {
-    orientationCamera.position.set(205, 92, 680);
-    orientationCamera.lookAt(0, -16, 0);
+    orientationCamera.position.set(340, 210, 640);
+    orientationCamera.lookAt(0, -12, 0);
   }
   const orientation = orientationCamera.quaternion;
   const inverse = orientation.clone().invert();
@@ -259,7 +259,7 @@ function fitNebulaCamera(
   const tanY = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
   const tanX = tanY * (width / height);
   let distance = 80;
-  const nodeEnvelope = 18;
+  const nodeEnvelope = 30;
   for (const point of localPoints) {
     const local = point.clone().sub(center);
     for (const sx of [-1, 1]) {
@@ -1191,8 +1191,8 @@ export function GraphStage({
         const controls = graph.controls();
         controls.autoRotate = false;
         graph.cameraPosition(
-          { x: 205, y: 92, z: 680 },
-          { x: 0, y: -16, z: 0 },
+          { x: 340, y: 210, z: 640 },
+          { x: 0, y: -12, z: 0 },
           0,
         );
         const initialFrame = fitNebulaCamera(
@@ -1223,8 +1223,8 @@ export function GraphStage({
             const equator = Math.sqrt(Math.max(0, 1 - vertical * vertical));
             dustPositions.push(
               center.x + Math.cos(angle) * equator * radius,
-              center.y + Math.sin(angle) * equator * radius * 0.78,
-              center.z + vertical * radius * 1.45,
+              center.y + Math.sin(angle) * equator * radius,
+              center.z + vertical * radius,
             );
             const colour = baseColour
               .clone()

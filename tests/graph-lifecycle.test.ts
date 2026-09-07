@@ -155,7 +155,7 @@ void test('empty history and unrelated work issue have safe node-only graphs', (
   assert.deepEqual(createMemoryGraph(issues, 0).links, []);
 });
 
-void test('ordered nebula is deterministic, finite, unique, and grows outward with time', () => {
+void test('ordered nebula is deterministic, spherical, and grows outward with time', () => {
   const graph = createMemoryGraph(issues);
   const first = createNebulaLayout(graph.nodes, graph.links);
   const reversed = createNebulaLayout(
@@ -189,8 +189,7 @@ void test('ordered nebula is deterministic, finite, unique, and grows outward wi
   ordered.forEach((node, index) => {
     const point = first.get(node.id)!;
     const progress = (index + 0.5) / ordered.length;
-    let phase =
-      Math.atan2(point.y / 0.7, point.x / 1.1) - progress * Math.PI * 3.2;
+    let phase = Math.atan2(point.z, point.x) - progress * Math.PI * 4.4;
     phase = ((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
     armOccupancy[
       Math.round((phase / (Math.PI * 2)) * armOccupancy.length) %
@@ -202,8 +201,6 @@ void test('ordered nebula is deterministic, finite, unique, and grows outward wi
     `unbalanced nebula arms: ${armOccupancy.join(',')}`,
   );
   const coordinates = [...first.values()];
-  const depthValues = coordinates.map((point) => point.z);
-  const depthSpan = Math.max(...depthValues) - Math.min(...depthValues);
   const standardDeviation = (values: number[]) => {
     const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
     return Math.sqrt(
@@ -211,13 +208,52 @@ void test('ordered nebula is deterministic, finite, unique, and grows outward wi
         values.length,
     );
   };
-  const planarDeviation = Math.sqrt(
-    (standardDeviation(coordinates.map((point) => point.x)) ** 2 +
-      standardDeviation(coordinates.map((point) => point.y)) ** 2) /
-      2,
+  const axisValues = (['x', 'y', 'z'] as const).map((axis) =>
+    coordinates.map((point) => point[axis]),
   );
-  assert.ok(depthSpan > 145, `flat nebula depth: ${depthSpan}`);
-  assert.ok(standardDeviation(depthValues) / planarDeviation > 0.18);
+  const spans = axisValues.map(
+    (values) => Math.max(...values) - Math.min(...values),
+  );
+  const deviations = axisValues.map(standardDeviation);
+  assert.ok(
+    Math.min(...spans) / Math.max(...spans) > 0.9,
+    `non-spherical nebula spans: ${spans.join(',')}`,
+  );
+  assert.ok(
+    Math.min(...deviations) / Math.max(...deviations) > 0.8,
+    `non-spherical nebula deviations: ${deviations.join(',')}`,
+  );
+  const means = axisValues.map(
+    (values) => values.reduce((sum, value) => sum + value, 0) / values.length,
+  );
+  const covariance = axisValues.map((left, leftIndex) =>
+    axisValues.map(
+      (right, rightIndex) =>
+        left.reduce(
+          (sum, value, index) =>
+            sum +
+            (value - means[leftIndex]) * (right[index] - means[rightIndex]),
+          0,
+        ) / left.length,
+    ),
+  );
+  const determinant =
+    covariance[0][0] *
+      (covariance[1][1] * covariance[2][2] -
+        covariance[1][2] * covariance[2][1]) -
+    covariance[0][1] *
+      (covariance[1][0] * covariance[2][2] -
+        covariance[1][2] * covariance[2][0]) +
+    covariance[0][2] *
+      (covariance[1][0] * covariance[2][1] -
+        covariance[1][1] * covariance[2][0]);
+  const sphericity =
+    (3 * Math.cbrt(Math.max(0, determinant))) /
+    (covariance[0][0] + covariance[1][1] + covariance[2][2]);
+  assert.ok(
+    sphericity > 0.92,
+    `nebula collapsed toward a rotated plane: ${sphericity}`,
+  );
 });
 
 void test('recorded completion evidence survives the edge budget without implying similarity or causality', () => {

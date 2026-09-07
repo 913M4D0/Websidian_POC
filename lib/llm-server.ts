@@ -83,7 +83,7 @@ async function verifiedModel(): Promise<VerifiedModel> {
         // This catalog request is public/read-only and never contains user data or a key.
         const response = await fetch('https://openrouter.ai/api/v1/models', {
           signal: AbortSignal.timeout(8000),
-          redirect: 'error',
+          redirect: 'manual',
         });
         if (!response.ok)
           throw new BriefError(
@@ -217,7 +217,7 @@ async function generateIssueInsight(
         },
         body: JSON.stringify(buildIssueInsightRequest(model, context, kind)),
         signal: AbortSignal.timeout(45_000),
-        redirect: 'error',
+        redirect: 'manual',
       },
     );
     if (!response.ok) {
@@ -331,7 +331,7 @@ export async function generateBrief(
         },
         body: JSON.stringify(buildOpenRouterRequest(model, context)),
         signal: AbortSignal.timeout(45_000),
-        redirect: 'error',
+        redirect: 'manual',
       },
     );
     if (!response.ok) {
@@ -429,7 +429,7 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
         },
         body: JSON.stringify(buildMemoryCompileRequest(model, issue)),
         signal: AbortSignal.timeout(45_000),
-        redirect: 'error',
+        redirect: 'manual',
       },
     );
     if (!response.ok) {
