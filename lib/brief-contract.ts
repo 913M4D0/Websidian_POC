@@ -316,7 +316,7 @@ export function buildOpenRouterRequest(
       require_parameters: true,
       allow_fallbacks: true,
       data_collection: 'deny',
-      sort: 'throughput',
+      sort: 'latency',
     },
     messages: [
       {

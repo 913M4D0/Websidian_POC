@@ -260,6 +260,7 @@ void test('provider payload isolates issue text and streams delimiter text with 
   assert.equal(request.provider.allow_fallbacks, true);
   assert.equal(request.provider.require_parameters, true);
   assert.equal(request.provider.data_collection, 'deny');
+  assert.equal(request.provider.sort, 'latency');
   assert.equal(request.messages.length, 2);
   assert.equal(
     request.messages[0].content.includes('UNTRUSTED ISSUE TEXT'),

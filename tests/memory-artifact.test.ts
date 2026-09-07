@@ -52,6 +52,7 @@ void test('compiled memory is strict, bounded, and free-form without mutating th
   assert.equal(request.stream, true);
   assert.equal(request.max_tokens, 128000);
   assert.equal(request.provider.allow_fallbacks, true);
+  assert.equal(request.provider.sort, 'latency');
   assert.equal('response_format' in request, false);
   assert.match(request.messages[0].content, /<<요약>>/);
   assert.match(request.messages[0].content, /untrusted source data/);

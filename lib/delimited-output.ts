@@ -30,6 +30,7 @@ export type DelimitedDisplayBlock = {
 
 export type DelimitedDisplay = {
   blocks: DelimitedDisplayBlock[];
+  complete: boolean;
 };
 
 const displaySchemas: Record<
@@ -69,26 +70,41 @@ const displaySchemas: Record<
  * unbalanced, or out-of-order markers deliberately return null so the UI can
  * show the provider's untouched text instead of hiding a malformed response.
  */
-export function parseDelimitedDisplay(
+function parseDisplay(
   output: string,
   kind: DelimitedDisplayKind,
+  allowIncomplete: boolean,
 ): DelimitedDisplay | null {
   const normalized = output.replace(/\r\n?/g, '\n');
   const schema = displaySchemas[kind];
   const topLevel = new Set(schema.topLevel);
   const fieldNames = new Set(schema.fields);
   const allowed = new Set([...schema.topLevel, ...schema.fields, '끝']);
-  const matches = [...normalized.matchAll(markers())];
-  if (!matches.length || normalized.slice(0, matches[0].index).trim())
+  let parseable = normalized;
+  if (allowIncomplete) {
+    const lastOpen = parseable.lastIndexOf('<<');
+    const lastClose = parseable.lastIndexOf('>>');
+    if (lastOpen > lastClose) {
+      const unfinishedMarker = parseable.slice(lastOpen);
+      if (unfinishedMarker.length > 44 || unfinishedMarker.includes('\n'))
+        return null;
+      parseable = parseable.slice(0, lastOpen);
+    } else if (parseable.endsWith('<')) {
+      parseable = parseable.slice(0, -1);
+    }
+  }
+
+  const matches = [...parseable.matchAll(markers())];
+  if (!matches.length || parseable.slice(0, matches[0].index).trim())
     return null;
 
-  const withoutValidMarkers = normalized.replace(markers(), '');
+  const withoutValidMarkers = parseable.replace(markers(), '');
   if (withoutValidMarkers.includes('<<') || withoutValidMarkers.includes('>>'))
     return null;
 
   const tokens = matches.map((match, index) => ({
     label: match[1].trim(),
-    value: normalized
+    value: parseable
       .slice(match.index! + match[0].length, matches[index + 1]?.index)
       .trim(),
   }));
@@ -97,9 +113,14 @@ export function parseDelimitedDisplay(
 
   const endIndex = tokens.findIndex((token) => token.label === '끝');
   const complete = endIndex === tokens.length - 1;
-  if (!complete || tokens[endIndex].value) return null;
+  if (
+    (endIndex >= 0 && !complete) ||
+    (complete && tokens[endIndex].value) ||
+    (!complete && !allowIncomplete)
+  )
+    return null;
 
-  const contentTokens = tokens.slice(0, -1);
+  const contentTokens = complete ? tokens.slice(0, -1) : tokens;
   const blocks: DelimitedDisplayBlock[] = [];
   for (const token of contentTokens) {
     if (topLevel.has(token.label)) {
@@ -116,11 +137,29 @@ export function parseDelimitedDisplay(
   if (
     !blocks.length ||
     blocks.some(
-      (block) => !block.body && !block.fields.some((item) => item.value),
+      (block, index) =>
+        !block.body &&
+        !block.fields.some((item) => item.value) &&
+        !(allowIncomplete && !complete && index === blocks.length - 1),
     )
   )
     return null;
-  return { blocks };
+  return { blocks, complete };
+}
+
+export function parseDelimitedDisplay(
+  output: string,
+  kind: DelimitedDisplayKind,
+): DelimitedDisplay | null {
+  return parseDisplay(output, kind, false);
+}
+
+/** Accepts a valid prefix so cards can be built while model text arrives. */
+export function parseDelimitedDisplayProgress(
+  output: string,
+  kind: DelimitedDisplayKind,
+): DelimitedDisplay | null {
+  return parseDisplay(output, kind, true);
 }
 
 function sections(text: string, topLevel: readonly string[]) {

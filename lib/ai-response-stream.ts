@@ -15,48 +15,62 @@ export function aiResponseStream<T>(
 ): Response {
   const encoder = new TextEncoder();
   const aborter = new AbortController();
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
   let closed = false;
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const send = (event: string, data: unknown) => {
-        if (closed) return;
-        controller.enqueue(
-          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
-        );
-      };
-      const startedAt = Date.now();
-      send('heartbeat', { elapsedMs: 0 });
-      heartbeat = setInterval(
-        () => send('heartbeat', { elapsedMs: Date.now() - startedAt }),
-        10_000,
-      );
-      void work({
-        emit: (text) => text && send('delta', { text }),
-        signal: aborter.signal,
-      })
-        .then((result) => send('result', result))
-        .catch((error: unknown) => send('error', { error: safeError(error) }))
-        .finally(() => {
-          if (heartbeat) clearInterval(heartbeat);
-          if (!closed) {
-            closed = true;
-            controller.close();
-          }
-        });
-    },
-    cancel() {
-      closed = true;
-      if (heartbeat) clearInterval(heartbeat);
-      aborter.abort();
-    },
+  let writes = Promise.resolve();
+  const queue = (value: string) => {
+    if (closed) return;
+    writes = writes
+      .then(() => writer.write(encoder.encode(value)))
+      .catch(() => {
+        closed = true;
+        aborter.abort();
+      });
+  };
+  const send = (event: string, data: unknown, padding = '') => {
+    queue(
+      `${padding ? `: ${padding}\n` : ''}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+    );
+  };
+  const startedAt = Date.now();
+  // A sizeable first event prevents small-chunk buffering at intermediary
+  // gateways; later heartbeats keep both the connection and progress visible.
+  send('heartbeat', { elapsedMs: 0 }, ' '.repeat(2048));
+  const heartbeat = setInterval(
+    () =>
+      send('heartbeat', { elapsedMs: Date.now() - startedAt }, ' '.repeat(256)),
+    1_000,
+  );
+  void work({
+    emit: (text) => text && send('delta', { text }),
+    signal: aborter.signal,
+  })
+    .then((result) => send('result', result))
+    .catch((error: unknown) => send('error', { error: safeError(error) }))
+    .finally(async () => {
+      clearInterval(heartbeat);
+      await writes;
+      if (!closed) {
+        closed = true;
+        try {
+          await writer.close();
+        } catch {}
+      }
+    });
+  void writer.closed.catch(() => {
+    clearInterval(heartbeat);
+    closed = true;
+    aborter.abort();
   });
-  return new Response(stream, {
+  return new Response(readable, {
     headers: {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'private, no-store, no-transform',
+      'Content-Encoding': 'identity',
       Vary: 'Cookie, oai-authenticated-user-id',
       'X-Accel-Buffering': 'no',
+      'X-Content-Type-Options': 'nosniff',
     },
   });
 }

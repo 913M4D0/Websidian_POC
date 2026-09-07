@@ -142,6 +142,7 @@ void test('automatic provider requests stream concise delimiter text with endpoi
     assert.equal(request.provider.allow_fallbacks, true);
     assert.equal(request.provider.require_parameters, true);
     assert.equal(request.provider.data_collection, 'deny');
+    assert.equal(request.provider.sort, 'latency');
     assert.equal('tools' in request, false);
     assert.equal('response_format' in request, false);
     assert.match(request.messages[0].content, /<<끝>>/);

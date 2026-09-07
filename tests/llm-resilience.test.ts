@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   parseDelimitedBrief,
   parseDelimitedDisplay,
+  parseDelimitedDisplayProgress,
   parseDelimitedIssueAnalysis,
   parseDelimitedIssueTestPlan,
   parseDelimitedMemory,
@@ -50,10 +51,37 @@ void test('browser SSE sends heartbeat, raw delta, and a final result', async ()
     response.headers.get('content-type') || '',
     /text\/event-stream/,
   );
+  assert.equal(response.headers.get('content-encoding'), 'identity');
+  assert.match(body, /: {256,}/);
   assert.match(body, /event: heartbeat/);
   assert.match(body, /event: delta/);
   assert.match(body, /구획 없는 평문/);
   assert.match(body, /event: result/);
+});
+
+void test('browser SSE flushes a heartbeat before generation completes', async () => {
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const response = aiResponseStream(async ({ emit }) => {
+    await gate;
+    emit('첫 구획');
+    return { content: '첫 구획' };
+  });
+  const reader = response.body!.getReader();
+  const first = await reader.read();
+  assert.equal(first.done, false);
+  assert.match(new TextDecoder().decode(first.value), /event: heartbeat/);
+  release();
+  let rest = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    rest += new TextDecoder().decode(value);
+  }
+  assert.match(rest, /event: delta/);
+  assert.match(rest, /event: result/);
 });
 
 void test('provider stream keeps already received text when the connection breaks', async () => {
@@ -111,6 +139,7 @@ void test('complete delimiter output is grouped into presentation cards and fiel
   ].join('\n');
   const parsed = parseDelimitedDisplay(content, 'analysis');
   assert.ok(parsed);
+  assert.equal(parsed.complete, true);
   assert.equal(parsed.blocks.length, 3);
   assert.deepEqual(parsed.blocks[1], {
     label: '확인된맥락',
@@ -122,6 +151,35 @@ void test('complete delimiter output is grouped into presentation cards and fiel
       { label: '내용', value: '과거에는 설정을 되돌렸습니다.' },
     ],
   });
+});
+
+void test('valid streaming prefixes create and fill the active card immediately', () => {
+  const first = parseDelimitedDisplayProgress(
+    '<<요약>>\n현재 이슈를 분석하고 있',
+    'analysis',
+  );
+  assert.ok(first);
+  assert.equal(first.complete, false);
+  assert.equal(first.blocks[0].label, '요약');
+  assert.equal(first.blocks[0].body, '현재 이슈를 분석하고 있');
+
+  const next = parseDelimitedDisplayProgress(
+    '<<요약>>\n현재 이슈를 분석했습니다.\n<<확인된맥락>>\n<<제목>>과거 처',
+    'analysis',
+  );
+  assert.ok(next);
+  assert.equal(next.blocks.length, 2);
+  assert.deepEqual(next.blocks[1].fields, [
+    { label: '제목', value: '과거 처' },
+  ]);
+
+  const markerBoundary = parseDelimitedDisplayProgress(
+    '<<요약>>\n현재 이슈를 분석했습니다.\n<<확인된맥락>>\n<<제',
+    'analysis',
+  );
+  assert.ok(markerBoundary);
+  assert.equal(markerBoundary.blocks.length, 2);
+  assert.deepEqual(markerBoundary.blocks[1].fields, []);
 });
 
 void test('incomplete or malformed delimiter output falls back without alteration', () => {
@@ -207,7 +265,18 @@ void test('the UI formats complete delimiters and preserves raw streaming or bro
   );
   assert.match(view, /data-output-format="raw"/);
   assert.match(view, /data-output-format="sections"/);
+  assert.match(view, /parseDelimitedDisplayProgress/);
+  assert.match(view, /is-streaming/);
   assert.doesNotMatch(view, /dangerouslySetInnerHTML/);
+  assert.match(source, /performance\.now\(\) - startedAt/);
+  assert.match(
+    source,
+    /DelimitedOutputView content=\{draft\} kind=\{mode\} streaming/,
+  );
+  assert.match(
+    source,
+    /content=\{briefDraft\}[\s\S]*kind="brief"[\s\S]*streaming/,
+  );
   assert.match(source, /Accept: 'text\/event-stream'/);
   assert.doesNotMatch(source, /pendingBirthIds/);
   assert.match(source, /setBirthIssueId\(issue\.id\)/);

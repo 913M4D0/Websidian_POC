@@ -226,6 +226,8 @@ async function streamApi<T>(
 const shortId = (id: string) =>
   id.startsWith('WS-L-') ? `LOCAL · ${id.slice(-6)}` : id;
 const percent = (n: number) => `${(n * 100).toFixed(1)}%`;
+const elapsedSeconds = (milliseconds: number) =>
+  (milliseconds / 1000).toFixed(1);
 const fieldText = (value: FormDataEntryValue | null, fallback = '') =>
   typeof value === 'string' ? value : fallback;
 const splitTags = (value: FormDataEntryValue | null) =>
@@ -744,14 +746,22 @@ function InsightDialog({
           <output className="insight-loading" aria-live="polite">
             <LoaderCircle className="animate-spin" />
             <strong>
-              {mode === 'analysis'
-                ? '최대 추론으로 관련 이력을 분석하는 중…'
-                : '최대 추론으로 검증 시나리오를 만드는 중…'}
+              {draft
+                ? 'AI 평문을 실시간으로 구성하는 중…'
+                : mode === 'analysis'
+                  ? '최대 추론으로 관련 이력을 분석하는 중…'
+                  : '최대 추론으로 검증 시나리오를 만드는 중…'}
             </strong>
             <span>
-              스트리밍 연결 유지 · {Math.floor(elapsedMs / 1000)}초 경과
+              {draft
+                ? '구획을 감지해 카드를 채우는 중'
+                : '첫 구획을 기다리는 중'}
+              {' · '}
+              {elapsedSeconds(elapsedMs)}초 경과
             </span>
-            {draft && <pre className="llm-plain-output">{draft}</pre>}
+            {draft && (
+              <DelimitedOutputView content={draft} kind={mode} streaming />
+            )}
           </output>
         )}
         {!busy && failure && (
@@ -1262,6 +1272,11 @@ export function MemoryUniverse() {
   async function generateBrief() {
     if (!history || !submittedQuery || briefBusy) return;
     const sequence = ++briefSequence.current;
+    const startedAt = performance.now();
+    const elapsedTimer = window.setInterval(() => {
+      if (sequence === briefSequence.current)
+        setBriefElapsedMs(performance.now() - startedAt);
+    }, 250);
     setBriefBusy(true);
     setBriefDraft('');
     setBriefElapsedMs(0);
@@ -1277,7 +1292,8 @@ export function MemoryUniverse() {
         },
         {
           onDelta: (text) => setBriefDraft((current) => `${current}${text}`),
-          onHeartbeat: setBriefElapsedMs,
+          onHeartbeat: (elapsed) =>
+            setBriefElapsedMs((current) => Math.max(current, elapsed)),
         },
       );
       if (sequence === briefSequence.current) setBrief(data);
@@ -1285,11 +1301,17 @@ export function MemoryUniverse() {
       if (sequence === briefSequence.current)
         setBriefFailure((cause as Error).message);
     } finally {
+      window.clearInterval(elapsedTimer);
       setBriefBusy(false);
     }
   }
   async function generateInsight(kind: 'analysis' | 'test-cases') {
     if (!contextRoot || insightBusy) return;
+    const startedAt = performance.now();
+    const elapsedTimer = window.setInterval(
+      () => setInsightElapsedMs(performance.now() - startedAt),
+      250,
+    );
     setInsightMode(kind);
     setInsightBusy(kind);
     setInsightFailure(null);
@@ -1304,7 +1326,8 @@ export function MemoryUniverse() {
           {
             onDelta: (text) =>
               setInsightDraft((current) => `${current}${text}`),
-            onHeartbeat: setInsightElapsedMs,
+            onHeartbeat: (elapsed) =>
+              setInsightElapsedMs((current) => Math.max(current, elapsed)),
           },
         );
         setAnalysis(response);
@@ -1315,7 +1338,8 @@ export function MemoryUniverse() {
           {
             onDelta: (text) =>
               setInsightDraft((current) => `${current}${text}`),
-            onHeartbeat: setInsightElapsedMs,
+            onHeartbeat: (elapsed) =>
+              setInsightElapsedMs((current) => Math.max(current, elapsed)),
           },
         );
         setTestPlan(response);
@@ -1323,6 +1347,7 @@ export function MemoryUniverse() {
     } catch (cause) {
       setInsightFailure({ mode: kind, message: (cause as Error).message });
     } finally {
+      window.clearInterval(elapsedTimer);
       setInsightBusy(null);
     }
   }
@@ -1774,11 +1799,18 @@ export function MemoryUniverse() {
                 {briefBusy && (
                   <div className="brief-stream-live" aria-live="polite">
                     <small>
-                      스트리밍 연결 유지 · {Math.floor(briefElapsedMs / 1000)}초
-                      경과
+                      {briefDraft
+                        ? '구획을 감지해 카드를 채우는 중'
+                        : '최대 추론 중 · 첫 구획을 기다리는 중'}
+                      {' · '}
+                      {elapsedSeconds(briefElapsedMs)}초 경과
                     </small>
                     {briefDraft && (
-                      <pre className="llm-plain-output">{briefDraft}</pre>
+                      <DelimitedOutputView
+                        content={briefDraft}
+                        kind="brief"
+                        streaming
+                      />
                     )}
                   </div>
                 )}
