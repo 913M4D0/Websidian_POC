@@ -3,7 +3,7 @@
  * Runtime still checks the live catalog before enabling a provider request.
  */
 export const llmPolicy = {
-  enabled: false,
+  enabled: true,
   provider: 'OpenRouter',
   requestedModel: 'GPT 5.6 Luna',
   modelId: 'openai/gpt-5.6-luna',

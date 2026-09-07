@@ -8,7 +8,10 @@ import {
   issueNodeId,
   linkEndpointId,
 } from '../lib/memory-graph.ts';
-import { createNebulaLayout } from '../lib/gravity-layout.ts';
+import {
+  createNebulaLayout,
+  rotateNebulaPosition,
+} from '../lib/gravity-layout.ts';
 
 const issues = JSON.parse(
   readFileSync(new URL('../data/issues.json', import.meta.url), 'utf8'),
@@ -254,6 +257,27 @@ void test('ordered nebula is deterministic, spherical, and grows outward with ti
     sphericity > 0.92,
     `nebula collapsed toward a rotated plane: ${sphericity}`,
   );
+});
+
+void test('overview orbit target is rigid and preserves the nebula volume', () => {
+  const left = { x: 120, y: -45, z: 80 };
+  const right = { x: -36, y: 72, z: 210 };
+  const pivot = { x: 47, y: 4, z: -24 };
+  const angle = Math.PI * 0.37;
+  const rotatedLeft = rotateNebulaPosition(left, angle, pivot);
+  const rotatedRight = rotateNebulaPosition(right, angle, pivot);
+  const distance = (a: typeof left, b: typeof left) =>
+    Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  assert.ok(
+    Math.abs(distance(rotatedLeft, pivot) - distance(left, pivot)) < 1e-10,
+  );
+  assert.ok(
+    Math.abs(distance(rotatedLeft, rotatedRight) - distance(left, right)) <
+      1e-10,
+  );
+  assert.deepEqual(rotateNebulaPosition(pivot, angle, pivot), pivot);
+  assert.equal(rotatedLeft.y, left.y);
+  assert.deepEqual(rotateNebulaPosition(left, 0), left);
 });
 
 void test('recorded completion evidence survives the edge budget without implying similarity or causality', () => {

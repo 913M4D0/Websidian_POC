@@ -94,6 +94,23 @@ export function memoryLinkKey(link: MemoryLink) {
   return `${source}::${target}::${link.relation}`;
 }
 
+/** Absolute Y-axis orbit around a stable pivot; never accumulates shape drift. */
+export function rotateNebulaPosition(
+  position: GraphPosition,
+  angle: number,
+  pivot?: GraphPosition,
+): GraphPosition {
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const x = position.x - (pivot?.x ?? 0);
+  const z = position.z - (pivot?.z ?? 0);
+  return {
+    x: (pivot?.x ?? 0) + x * cosine + z * sine,
+    y: position.y,
+    z: (pivot?.z ?? 0) - x * sine + z * cosine,
+  };
+}
+
 /**
  * Stable five-arm spherical issue nebula. Time expands from the centre while
  * each team follows a helical path around a sphere; bounded force relaxation

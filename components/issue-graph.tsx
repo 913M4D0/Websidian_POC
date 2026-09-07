@@ -5,6 +5,7 @@ import {
   createGravityLayout,
   createNebulaLayout,
   memoryLinkKey,
+  rotateNebulaPosition,
   type GraphPosition,
   type GravityLayout,
 } from '@/lib/gravity-layout';
@@ -116,6 +117,13 @@ type GraphSafeRect = {
   bottom: number;
 };
 
+// Camera distance—not node geometry—sets the presentation scale. The overview
+// keeps the outer node centres visible while spending most of the former halo
+// allowance; focused issues move materially closer than their tree overview.
+const OVERVIEW_CAMERA_DISTANCE_FACTOR = 0.96;
+const GRAVITY_CAMERA_MINIMUM_SCALE = 0.82;
+const RELATED_FOCUS_CAMERA_DISTANCE_FACTOR = 0.72;
+
 function hexToRgba(hex: string, alpha: number) {
   const value = hex.replace('#', '');
   const full =
@@ -225,6 +233,7 @@ function fitNebulaCamera(
   points: Iterable<GraphPosition>,
   container: HTMLElement,
   resetOrientation = false,
+  distanceFactor = 1,
 ) {
   const width = Math.max(1, container.clientWidth);
   const height = Math.max(1, container.clientHeight);
@@ -280,6 +289,7 @@ function fitNebulaCamera(
       }
     }
   }
+  distance = Math.max(80, distance * distanceFactor);
   const target = center
     .clone()
     .add(
@@ -361,6 +371,7 @@ export function GraphStage({
     downY: -1000,
     downNodeId: '' as string,
   });
+  const overviewRotationRef = useRef({ angle: 0, lastTimestamp: 0 });
   const nodeObjectRefs = useRef<Map<string, import('three').Group>>(new Map());
   const neighborIdsRef = useRef<Map<string, Set<string>>>(new Map());
   const nebulaMaterialsRef = useRef<Array<{ opacity: number }>>([]);
@@ -426,13 +437,22 @@ export function GraphStage({
     let softGlowTexture: import('three').CanvasTexture | null = null;
     let activeGlowTexture: import('three').CanvasTexture | null = null;
     const nodeObjects = nodeObjectRefs.current;
+    const orientNebulaObjects = (angle: number) => {
+      for (const nebula of nebulaObjectsRef.current) {
+        nebula.points.rotation.y = angle;
+        nebula.points.position.set(0, 0, 0);
+      }
+    };
     const updateMotionPreference = (
       event: MediaQueryListEvent | MediaQueryList,
     ) => {
       reducedMotionRef.current = event.matches;
+      overviewRotationRef.current.lastTimestamp = performance.now();
       if (event.matches) {
+        overviewRotationRef.current.angle = 0;
         pointerStateRef.current.active = false;
         draggedNodeIdRef.current = null;
+        orientNebulaObjects(0);
         for (const marker of nodeObjects.values()) {
           const object = marker.parent;
           object?.scale.setScalar(1);
@@ -635,29 +655,28 @@ export function GraphStage({
           onSelectRef.current(node);
         };
         let simulationNodes = runtimeNodes;
-        const motionById = new Map(
-          runtimeNodes.map((node, index) => [
-            node.id,
-            {
-              phase: index * 2.399963229728653 + node.id.length * 0.19,
-              speed: 0.45 + (index % 7) * 0.045,
-              amplitude: Math.min(3.6, 2.2 + node.importance * 1.4),
-            },
-          ]),
-        );
         const cameraRight = new THREE.Vector3();
         const cameraUp = new THREE.Vector3();
         const livingForce = ((alpha: number) => {
+          const now = performance.now();
+          const rotation = overviewRotationRef.current;
           if (
             stateRef.current.gravityRootId ||
             gravityLayoutRef.current ||
             reducedMotionRef.current ||
             animationFrameRef.current !== null ||
             selectionFocusFrameRef.current !== null
-          )
+          ) {
+            rotation.lastTimestamp = now;
             return;
+          }
 
-          const seconds = performance.now() / 1000;
+          const elapsedSeconds = rotation.lastTimestamp
+            ? Math.min(0.05, Math.max(0, (now - rotation.lastTimestamp) / 1000))
+            : 0;
+          rotation.lastTimestamp = now;
+          rotation.angle =
+            (rotation.angle + elapsedSeconds * 0.055) % (Math.PI * 2);
           const pointer = pointerStateRef.current;
           const pointerResponds = pointer.active && !pointer.pressed;
           if (pointerResponds) {
@@ -681,26 +700,12 @@ export function GraphStage({
             )
               continue;
             const anchor = nebulaPositions.get(node.id);
-            const motion = motionById.get(node.id);
-            if (!anchor || !motion) continue;
-            const targetX =
-              anchor.x +
-              Math.sin(seconds * motion.speed + motion.phase) *
-                motion.amplitude;
-            const targetY =
-              anchor.y +
-              Math.sin(seconds * motion.speed * 0.83 + motion.phase * 1.37) *
-                motion.amplitude *
-                0.65;
-            const targetZ =
-              anchor.z +
-              Math.cos(seconds * motion.speed * 0.71 + motion.phase * 0.73) *
-                motion.amplitude *
-                0.8;
-            const spring = 0.014;
-            node.vx = (node.vx ?? 0) + (targetX - node.x) * spring * alpha;
-            node.vy = (node.vy ?? 0) + (targetY - node.y) * spring * alpha;
-            node.vz = (node.vz ?? 0) + (targetZ - node.z) * spring * alpha;
+            if (!anchor) continue;
+            const target = rotateNebulaPosition(anchor, rotation.angle);
+            const spring = 0.022;
+            node.vx = (node.vx ?? 0) + (target.x - node.x) * spring * alpha;
+            node.vy = (node.vy ?? 0) + (target.y - node.y) * spring * alpha;
+            node.vz = (node.vz ?? 0) + (target.z - node.z) * spring * alpha;
 
             if (pointerResponds && node.id !== hoveredIdRef.current) {
               const screen = graph.graph2ScreenCoords(node.x, node.y, node.z);
@@ -720,6 +725,7 @@ export function GraphStage({
               }
             }
           }
+          orientNebulaObjects(rotation.angle);
         }) as GraphForce;
         livingForce.initialize = (nextNodes) => {
           simulationNodes = nextNodes;
@@ -1201,6 +1207,7 @@ export function GraphStage({
           nebulaPositions.values(),
           element,
           true,
+          OVERVIEW_CAMERA_DISTANCE_FACTOR,
         );
         if (initialFrame)
           graph.cameraPosition(initialFrame.position, initialFrame.target, 0);
@@ -1674,9 +1681,10 @@ export function GraphStage({
         target: GraphPosition,
         maximum: number,
       ) => {
-        if (projectionFits(position, target, 1)) return 1;
+        if (projectionFits(position, target, GRAVITY_CAMERA_MINIMUM_SCALE))
+          return GRAVITY_CAMERA_MINIMUM_SCALE;
         if (!projectionFits(position, target, maximum)) return null;
-        let low = 1;
+        let low = GRAVITY_CAMERA_MINIMUM_SCALE;
         let high = maximum;
         for (let index = 0; index < 12; index += 1) {
           const candidate = (low + high) / 2;
@@ -1748,6 +1756,12 @@ export function GraphStage({
       }
     } else {
       onGravityChangeRef.current(null);
+      targets = new Map(
+        [...nebulaPositionsRef.current].map(([id, position]) => [
+          id,
+          rotateNebulaPosition(position, overviewRotationRef.current.angle),
+        ]),
+      );
       const overviewCamera = camera.clone();
       if (gravityCameraRef.current) {
         const previous = gravityCameraRef.current;
@@ -1771,6 +1785,7 @@ export function GraphStage({
           targets.values(),
           container,
           resetOverview,
+          OVERVIEW_CAMERA_DISTANCE_FACTOR,
         );
         if (fitted) cameraTarget = fitted;
       }
@@ -1999,7 +2014,6 @@ export function GraphStage({
       overview.target.z,
     ).add(translation);
     const isRootFocus = selected.id === gravityRootId;
-    const focusScale = 0.78;
     const targetPosition = isRootFocus
       ? new THREE.Vector3(
           overview.position.x,
@@ -2008,7 +2022,11 @@ export function GraphStage({
         )
       : selectedVector
           .clone()
-          .add(pannedPosition.sub(selectedVector).multiplyScalar(focusScale));
+          .add(
+            pannedPosition
+              .sub(selectedVector)
+              .multiplyScalar(RELATED_FOCUS_CAMERA_DISTANCE_FACTOR),
+          );
     const targetLookAt = isRootFocus
       ? new THREE.Vector3(
           overview.target.x,
@@ -2017,7 +2035,11 @@ export function GraphStage({
         )
       : selectedVector
           .clone()
-          .add(pannedTarget.sub(selectedVector).multiplyScalar(focusScale));
+          .add(
+            pannedTarget
+              .sub(selectedVector)
+              .multiplyScalar(RELATED_FOCUS_CAMERA_DISTANCE_FACTOR),
+          );
     const startPosition = camera.position.clone();
     const startLookAt = controls.target.clone();
     if (
