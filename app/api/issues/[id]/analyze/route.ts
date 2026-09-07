@@ -2,6 +2,7 @@ import { authenticate, apiFailure, json } from '@/lib/api-security';
 import { buildIssueInsightContext } from '@/lib/issue-insight';
 import { listIssues } from '@/lib/issue-store';
 import { generateIssueAnalysis } from '@/lib/llm-server';
+import { aiResponseStream } from '@/lib/ai-response-stream';
 
 export async function POST(
   request: Request,
@@ -14,7 +15,14 @@ export async function POST(
       id,
       await listIssues(actor),
     );
-    return json(await generateIssueAnalysis(actor, insightContext));
+    return request.headers.get('accept')?.includes('text/event-stream')
+      ? aiResponseStream(({ emit, signal }) =>
+          generateIssueAnalysis(actor, insightContext, {
+            onDelta: emit,
+            signal,
+          }),
+        )
+      : json(await generateIssueAnalysis(actor, insightContext));
   } catch (error) {
     return apiFailure(error);
   }

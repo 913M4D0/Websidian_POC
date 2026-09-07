@@ -20,6 +20,7 @@ import {
   memoryIndexSnapshot,
   saveMemoryArtifacts,
 } from './memory-store.ts';
+import { sourceMemory } from './delimited-output.ts';
 
 function compiledFrom(artifact?: MemoryArtifact | null): CompiledMemory | null {
   return artifact?.compileStatus === 'ready' &&
@@ -154,47 +155,34 @@ export async function compileAndIndexIssue(actor: string, issue: Issue) {
   if (
     sameSource &&
     existing.compileStatus === 'ready' &&
+    existing.compileModel !== 'source-fallback' &&
     existing.embeddingStatus === 'ready' &&
     existing.embeddingModel === embeddingPolicy.modelId
   )
     return { artifact: existing, reused: true as const };
 
-  let compiled = sameSource ? compiledFrom(existing) : null;
+  let compiled =
+    sameSource && existing?.compileModel !== 'source-fallback'
+      ? compiledFrom(existing)
+      : null;
   let compileMetadata:
     | { modelId: string; reasoning: string; compiledAt: string }
     | undefined;
+  let compileWarning: string | undefined;
   if (!compiled) {
     try {
       const response = await compileIssueMemory(actor, issue);
       compiled = response.compiled;
       compileMetadata = response;
+      compileWarning = response.warning;
     } catch (error) {
-      const failed: MemoryArtifact = {
-        issueId: issue.id,
-        sourceRevision: issue.revision,
-        contentHash: hash,
-        compileStatus: 'failed',
-        embeddingStatus:
-          sameSource && existing?.embeddingStatus === 'ready'
-            ? 'ready'
-            : 'not-started',
-        ...(sameSource && existing?.embeddingModel
-          ? { embeddingModel: existing.embeddingModel }
-          : {}),
-        ...(sameSource && existing?.dimensions
-          ? { dimensions: existing.dimensions }
-          : {}),
-        ...(sameSource && existing?.embedding
-          ? { embedding: existing.embedding }
-          : {}),
-        semanticNeighbors:
-          sameSource && existing ? existing.semanticNeighbors : [],
-        updatedAt: new Date().toISOString(),
-        error:
-          'AI 기억 생성에 실패했습니다. 원본 이슈와 완료 상태는 보존됩니다.',
+      compiled = sourceMemory(issue);
+      compileMetadata = {
+        modelId: 'source-fallback',
+        reasoning: 'source-only',
+        compiledAt: new Date().toISOString(),
       };
-      await saveMemoryArtifacts(actor, [failed]);
-      throw error;
+      compileWarning = `${error instanceof Error ? error.message : 'AI 기억 생성에 실패했습니다.'} 원문 기반 기억 노드는 정상 생성됐습니다.`;
     }
   }
 
@@ -236,7 +224,11 @@ export async function compileAndIndexIssue(actor: string, issue: Issue) {
         'AI 요약은 저장됐지만 의미 벡터 생성에 실패했습니다. 다시 시도할 수 있습니다.',
     };
     await saveMemoryArtifacts(actor, [ready]);
-    return { artifact: ready, reused: false as const, warning: ready.error };
+    return {
+      artifact: ready,
+      reused: false as const,
+      warning: [compileWarning, ready.error].filter(Boolean).join(' '),
+    };
   }
   const all = await listMemoryArtifacts(actor);
   const merged = new Map(all.map((artifact) => [artifact.issueId, artifact]));
@@ -246,6 +238,7 @@ export async function compileAndIndexIssue(actor: string, issue: Issue) {
   return {
     artifact: recalculated.find((artifact) => artifact.issueId === issue.id)!,
     reused: false as const,
+    ...(compileWarning ? { warning: compileWarning } : {}),
   };
 }
 

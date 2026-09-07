@@ -272,6 +272,22 @@
   margin-top: 14px;
   font-size: 11px;
 }
+.brief-stream-live {
+  margin-top: 10px;
+  color: #9da7ac;
+}
+.brief-inline-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-left: 2px solid #f48771;
+  background: #2d2323;
+  color: #e5b7ad;
+  font-size: 10.5px;
+}
 .generated-brief {
   margin-top: 24px;
   border-top: 1px solid #51564c;
@@ -1713,8 +1729,37 @@
 .insight-empty {
   font-size: 12px;
 }
+.insight-loading .llm-plain-output {
+  width: 100%;
+  max-height: 48dvh;
+  overflow: auto;
+  text-align: left;
+}
 .insight-result {
   padding: 8px 2px;
+}
+.llm-plain-output {
+  margin: 12px 0 0;
+  padding: 18px;
+  border: 1px solid #3d4347;
+  border-left: 3px solid #4ec9b0;
+  border-radius: 4px;
+  background: #202426;
+  color: #d2d7d9;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.insight-stream-warning {
+  margin: 10px 0;
+  padding: 9px 11px;
+  border-left: 2px solid #d7ba7d;
+  background: #2b2922;
+  color: #d9c99e;
+  font-size: 11px;
+  line-height: 1.65;
 }
 .insight-result > h3 {
   margin: 27px 0 11px;

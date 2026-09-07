@@ -54,7 +54,6 @@ import {
   representativeScenarios,
 } from '@/lib/demo-scenarios';
 import type {
-  InsightClaim,
   IssueAnalysisResponse,
   IssueTestPlanResponse,
 } from '@/lib/issue-insight';
@@ -121,12 +120,107 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
           : response.status === 504
             ? 'AI 최대 추론이 3분 안에 완료되지 않았습니다.'
             : response.status >= 500
-              ? 'AI 서비스 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
+              ? '서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.'
               : '요청에 실패했습니다.';
     throw new Error(providerMessage || fallback);
   }
   if (data === null) throw new Error('서버 응답 형식을 확인하지 못했습니다.');
   return data as T;
+}
+
+async function streamApi<T>(
+  path: string,
+  body: unknown,
+  hooks: {
+    onDelta?: (text: string) => void;
+    onHeartbeat?: (elapsedMs: number) => void;
+  } = {},
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      headers: {
+        Accept: 'text/event-stream',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(
+      '서버와 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.',
+    );
+  }
+  if (!response.ok) {
+    const raw = await response.text();
+    let message = '';
+    try {
+      const payload = JSON.parse(raw) as { error?: unknown };
+      if (typeof payload.error === 'string') message = payload.error;
+    } catch {}
+    throw new Error(message || 'AI 스트리밍 요청을 시작하지 못했습니다.');
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('AI 스트리밍 응답이 비어 있습니다.');
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result: T | undefined;
+  let streamError = '';
+  const process = (block: string) => {
+    const lines = block.split('\n');
+    const event =
+      lines
+        .find((line) => line.startsWith('event:'))
+        ?.slice(6)
+        .trim() || 'message';
+    const raw = lines
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trimStart())
+      .join('\n');
+    if (!raw) return;
+    let payload: unknown;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (event === 'delta') {
+      const text =
+        payload && typeof payload === 'object' && 'text' in payload
+          ? payload.text
+          : '';
+      if (typeof text === 'string') hooks.onDelta?.(text);
+    } else if (event === 'heartbeat') {
+      const elapsed =
+        payload && typeof payload === 'object' && 'elapsedMs' in payload
+          ? payload.elapsedMs
+          : 0;
+      if (typeof elapsed === 'number') hooks.onHeartbeat?.(elapsed);
+    } else if (event === 'result') {
+      result = payload as T;
+    } else if (event === 'error') {
+      const message =
+        payload && typeof payload === 'object' && 'error' in payload
+          ? payload.error
+          : '';
+      streamError =
+        typeof message === 'string' && message
+          ? message
+          : 'AI 스트리밍 요청을 완료하지 못했습니다.';
+    }
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop() ?? '';
+    for (const block of blocks) process(block);
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) process(buffer);
+  if (result !== undefined) return result;
+  throw new Error(streamError || 'AI 스트리밍 응답이 완료되지 않았습니다.');
 }
 const shortId = (id: string) =>
   id.startsWith('WS-L-') ? `LOCAL · ${id.slice(-6)}` : id;
@@ -596,6 +690,8 @@ function InsightDialog({
   testPlan,
   busy,
   failure,
+  draft,
+  elapsedMs,
   onMode,
   onRetry,
   onClose,
@@ -607,27 +703,13 @@ function InsightDialog({
   testPlan: IssueTestPlanResponse | null;
   busy: 'analysis' | 'test-cases' | null;
   failure: string;
+  draft: string;
+  elapsedMs: number;
   onMode: (mode: 'analysis' | 'test-cases') => void;
   onRetry: () => void;
   onClose: () => void;
   onEvidence: (id: string) => void;
 }) {
-  const claim = (item: InsightClaim, index: number) => (
-    <article className="insight-claim" key={`${item.title}-${index}`}>
-      <small>
-        {item.kind === 'fact' ? '확인된 사실' : '가능성이 높은 해석'}
-      </small>
-      <h4>{item.title}</h4>
-      <p>{item.text}</p>
-      <div className="insight-citations">
-        {item.evidenceIds.map((id) => (
-          <button key={id} onClick={() => onEvidence(id)}>
-            {shortId(id)} 원문 보기
-          </button>
-        ))}
-      </div>
-    </article>
-  );
   const current = mode === 'analysis' ? analysis : testPlan;
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
@@ -666,14 +748,16 @@ function InsightDialog({
                 : '최대 추론으로 검증 시나리오를 만드는 중…'}
             </strong>
             <span>
-              보통 1~3분이 걸립니다. 새로고침하면 결과를 받을 수 없습니다.
+              스트리밍 연결 유지 · {Math.floor(elapsedMs / 1000)}초 경과
             </span>
+            {draft && <pre className="llm-plain-output">{draft}</pre>}
           </output>
         )}
         {!busy && failure && (
           <div className="insight-empty" role="alert">
             <strong>AI 결과를 만들지 못했습니다.</strong>
             <p>{failure}</p>
+            {draft && <pre className="llm-plain-output">{draft}</pre>}
             <Button size="sm" variant="outline" onClick={onRetry}>
               다시 시도
             </Button>
@@ -686,86 +770,50 @@ function InsightDialog({
         )}
         {mode === 'analysis' && analysis && busy !== mode && (
           <div className="insight-result">
-            <section className="insight-summary">
-              <span>한눈에 보기</span>
-              <p>{analysis.analysis.summary}</p>
-            </section>
-            <h3>확인된 맥락</h3>
-            {analysis.analysis.findings.map(claim)}
-            {!!analysis.analysis.risks.length && <h3>주의할 위험</h3>}
-            {analysis.analysis.risks.map(claim)}
-            <h3>권장 처리 방향</h3>
-            {analysis.analysis.recommendations.map(claim)}
-            {!!analysis.analysis.openQuestions.length && (
-              <>
-                <h3>추가 확인 사항</h3>
-                <ol className="insight-questions">
-                  {analysis.analysis.openQuestions.map((question) => (
-                    <li key={question}>{question}</li>
-                  ))}
-                </ol>
-              </>
+            {analysis.warning && (
+              <p className="insight-stream-warning">{analysis.warning}</p>
+            )}
+            <pre className="llm-plain-output">{analysis.content}</pre>
+            <div className="insight-citations">
+              {analysis.evidenceIds.map((id) => (
+                <button key={id} onClick={() => onEvidence(id)}>
+                  {shortId(id)} 제공된 원문
+                </button>
+              ))}
+            </div>
+            {analysis.warning && (
+              <Button size="sm" variant="outline" onClick={onRetry}>
+                실시간 AI 다시 시도
+              </Button>
             )}
           </div>
         )}
         {mode === 'test-cases' && testPlan && busy !== mode && (
           <div className="insight-result">
-            <section className="insight-summary">
-              <span>테스트 전략</span>
-              <p>{testPlan.testPlan.strategy}</p>
-            </section>
-            <h3>생성된 테스트 케이스</h3>
-            {testPlan.testPlan.cases.map((testCase) => (
-              <article className="test-case" key={testCase.id}>
-                <div>
-                  <span>{testCase.id}</span>
-                  <b data-priority={testCase.priority}>
-                    {testCase.priority === 'critical'
-                      ? '필수'
-                      : testCase.priority === 'high'
-                        ? '높음'
-                        : '보통'}
-                  </b>
-                </div>
-                <h4>{testCase.title}</h4>
-                {!!testCase.preconditions.length && (
-                  <>
-                    <h5>사전 조건</h5>
-                    <ul>
-                      {testCase.preconditions.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                <h5>실행 단계</h5>
-                <ol>
-                  {testCase.steps.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ol>
-                <h5>기대 결과</h5>
-                <p>{testCase.expected}</p>
-                <div className="insight-citations">
-                  {testCase.evidenceIds.map((id) => (
-                    <button key={id} onClick={() => onEvidence(id)}>
-                      {shortId(id)} 원문 보기
-                    </button>
-                  ))}
-                </div>
-              </article>
-            ))}
-            {!!testPlan.testPlan.regressionScope.length && (
-              <>
-                <h3>회귀 확인 범위</h3>
-                {testPlan.testPlan.regressionScope.map(claim)}
-              </>
+            {testPlan.warning && (
+              <p className="insight-stream-warning">{testPlan.warning}</p>
+            )}
+            <pre className="llm-plain-output">{testPlan.content}</pre>
+            <div className="insight-citations">
+              {testPlan.evidenceIds.map((id) => (
+                <button key={id} onClick={() => onEvidence(id)}>
+                  {shortId(id)} 제공된 원문
+                </button>
+              ))}
+            </div>
+            {testPlan.warning && (
+              <Button size="sm" variant="outline" onClick={onRetry}>
+                실시간 AI 다시 시도
+              </Button>
             )}
           </div>
         )}
         <p className="insight-disclosure">
-          GPT 5.6 Luna가 서버에서 자동 수집한 이력만 사용합니다. 결과는 원본
-          이슈를 바꾸지 않으며, 실제 조치 전 인용된 기록을 확인해야 합니다.
+          {current?.engine === 'source-fallback'
+            ? '실시간 AI 대신 서버가 자동 수집한 원문을 정리한 안전 결과입니다.'
+            : 'GPT 5.6 Luna가 서버에서 자동 수집한 이력만 사용합니다.'}{' '}
+          결과는 원본 이슈를 바꾸지 않으며, 실제 조치 전 연결된 기록을 확인해야
+          합니다.
         </p>
       </DialogContent>
     </Dialog>
@@ -798,6 +846,9 @@ export function MemoryUniverse() {
   const [history, setHistory] = useState<IssueHistory | null>(null);
   const [brief, setBrief] = useState<BriefResponse | null>(null);
   const [briefBusy, setBriefBusy] = useState(false);
+  const [briefDraft, setBriefDraft] = useState('');
+  const [briefElapsedMs, setBriefElapsedMs] = useState(0);
+  const [briefFailure, setBriefFailure] = useState('');
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [progressText, setProgressText] = useState('');
   const [progressBusy, setProgressBusy] = useState(false);
@@ -824,10 +875,9 @@ export function MemoryUniverse() {
     mode: 'analysis' | 'test-cases';
     message: string;
   } | null>(null);
+  const [insightDraft, setInsightDraft] = useState('');
+  const [insightElapsedMs, setInsightElapsedMs] = useState(0);
   const [contextBusy, setContextBusy] = useState(false);
-  const [pendingBirthIds, setPendingBirthIds] = useState<Set<string>>(
-    new Set(),
-  );
   const [birthIssueId, setBirthIssueId] = useState<string | null>(null);
   const [birthVersion, setBirthVersion] = useState(0);
   const searchSequence = useRef(0);
@@ -902,13 +952,9 @@ export function MemoryUniverse() {
     };
   }, []);
 
-  const graphIssues = useMemo(
-    () => issues.filter((issue) => !pendingBirthIds.has(issue.id)),
-    [issues, pendingBirthIds],
-  );
   const graph = useMemo(
-    () => createMemoryGraph(graphIssues, neighbors, contextRootId, artifacts),
-    [graphIssues, neighbors, contextRootId, artifacts],
+    () => createMemoryGraph(issues, neighbors, contextRootId, artifacts),
+    [issues, neighbors, contextRootId, artifacts],
   );
   const byId = useMemo(
     () => new Map(issues.map((issue) => [issue.id, issue])),
@@ -1065,7 +1111,8 @@ export function MemoryUniverse() {
     setGraphError(false);
     setSelectedId(issue.id);
     if (issue.status === 'closed') {
-      setPendingBirthIds((current) => new Set(current).add(issue.id));
+      setBirthIssueId(issue.id);
+      setBirthVersion((value) => value + 1);
       setContextRootId(null);
       setGravityRootId(null);
       setResetVersion((value) => value + 1);
@@ -1088,10 +1135,10 @@ export function MemoryUniverse() {
     briefSequence.current++;
     setNotice(
       issue.status === 'closed'
-        ? '처리 완료. 진행 노드를 제거하고 AI가 정식 기억을 만드는 중입니다.'
+        ? '처리 완료. 정식 기억 노드가 생성됐고 AI 검색 보강을 진행합니다.'
         : '신규 이슈가 접수됐습니다. 관련 이력이 자동으로 정렬됩니다.',
     );
-    if (issue.status === 'closed') void compileMemory(issue.id, true);
+    if (issue.status === 'closed') void compileMemory(issue.id);
   }
   function togglePin(id: string) {
     if (byId.get(id)?.status !== 'closed' || id === referenceId) return;
@@ -1159,7 +1206,7 @@ export function MemoryUniverse() {
         : { ...data, embedding: data.embedding },
     );
   }
-  async function compileMemory(issueId: string, revealBirth = false) {
+  async function compileMemory(issueId: string) {
     if (compilingIds.has(issueId)) return;
     setCompilingIds((current) => new Set(current).add(issueId));
     try {
@@ -1175,27 +1222,12 @@ export function MemoryUniverse() {
       await refreshMemoryArtifacts();
       setDataVersion((value) => value + 1);
       setGraphReady(false);
-      if (revealBirth) {
-        setPendingBirthIds((current) => {
-          const next = new Set(current);
-          next.delete(issueId);
-          return next;
-        });
-        setBirthIssueId(issueId);
-        setBirthVersion((value) => value + 1);
-        setSelectedId(issueId);
-        setNotice(
-          result.warning ||
-            'AI가 처리 내용을 정리해 정식 기억 노드로 만들었습니다.',
-        );
-      } else {
-        setNotice(
-          result.warning ||
-            (result.reused
-              ? 'AI 기억과 의미 연결이 이미 최신 상태입니다.'
-              : 'GPT 5.6 Luna가 검색용 기억을 컴파일하고 의미 연결을 갱신했습니다.'),
-        );
-      }
+      setNotice(
+        result.warning ||
+          (result.reused
+            ? 'AI 기억과 의미 연결이 이미 최신 상태입니다.'
+            : 'GPT 5.6 Luna가 검색용 기억을 컴파일하고 의미 연결을 갱신했습니다.'),
+      );
     } catch (cause) {
       try {
         await refreshMemoryArtifacts();
@@ -1203,15 +1235,6 @@ export function MemoryUniverse() {
       setError(
         `${(cause as Error).message} 이슈 완료와 원문은 보존됐으며 다시 시도할 수 있습니다.`,
       );
-      if (revealBirth) {
-        setPendingBirthIds((current) => {
-          const next = new Set(current);
-          next.delete(issueId);
-          return next;
-        });
-        setDataVersion((value) => value + 1);
-        setGraphReady(false);
-      }
     } finally {
       setCompilingIds((current) => {
         const next = new Set(current);
@@ -1236,20 +1259,30 @@ export function MemoryUniverse() {
     setNotice(message);
   }
   async function generateBrief() {
-    if (!history || !submittedQuery || briefBusy || !llmStatus?.ready) return;
+    if (!history || !submittedQuery || briefBusy) return;
     const sequence = ++briefSequence.current;
     setBriefBusy(true);
+    setBriefDraft('');
+    setBriefElapsedMs(0);
+    setBriefFailure('');
     setError('');
     try {
-      const data = await api<BriefResponse>('/api/brief', {
-        query: history.query,
-        referenceId: history.referenceId,
-        pinnedIds,
-      });
+      const data = await streamApi<BriefResponse>(
+        '/api/brief',
+        {
+          query: history.query,
+          referenceId: history.referenceId,
+          pinnedIds,
+        },
+        {
+          onDelta: (text) => setBriefDraft((current) => `${current}${text}`),
+          onHeartbeat: setBriefElapsedMs,
+        },
+      );
       if (sequence === briefSequence.current) setBrief(data);
     } catch (cause) {
       if (sequence === briefSequence.current)
-        setError((cause as Error).message);
+        setBriefFailure((cause as Error).message);
     } finally {
       setBriefBusy(false);
     }
@@ -1259,18 +1292,30 @@ export function MemoryUniverse() {
     setInsightMode(kind);
     setInsightBusy(kind);
     setInsightFailure(null);
+    setInsightDraft('');
+    setInsightElapsedMs(0);
     setError('');
     try {
       if (kind === 'analysis') {
-        const response = await api<IssueAnalysisResponse>(
+        const response = await streamApi<IssueAnalysisResponse>(
           `/api/issues/${encodeURIComponent(contextRoot.id)}/analyze`,
           {},
+          {
+            onDelta: (text) =>
+              setInsightDraft((current) => `${current}${text}`),
+            onHeartbeat: setInsightElapsedMs,
+          },
         );
         setAnalysis(response);
       } else {
-        const response = await api<IssueTestPlanResponse>(
+        const response = await streamApi<IssueTestPlanResponse>(
           `/api/issues/${encodeURIComponent(contextRoot.id)}/test-cases`,
           {},
+          {
+            onDelta: (text) =>
+              setInsightDraft((current) => `${current}${text}`),
+            onHeartbeat: setInsightElapsedMs,
+          },
         );
         setTestPlan(response);
       }
@@ -1682,7 +1727,9 @@ export function MemoryUniverse() {
                 })}
                 <div className="provider-state">
                   <span>
-                    {llmStatus?.ready ? 'AI 분석 준비됨' : 'AI 분석 연결 대기'}
+                    {llmStatus?.ready
+                      ? 'AI 분석 준비됨'
+                      : '원문 안전 결과 사용 가능'}
                   </span>
                   <strong>
                     {llmPolicy.provider} · {llmPolicy.requestedModel}
@@ -1695,12 +1742,7 @@ export function MemoryUniverse() {
                 </div>
                 <Button
                   className="w-full brief-generate"
-                  disabled={
-                    !llmStatus?.ready ||
-                    !history ||
-                    !submittedQuery ||
-                    briefBusy
-                  }
+                  disabled={!history || !submittedQuery || briefBusy}
                   onClick={() => void generateBrief()}
                 >
                   {briefBusy && <LoaderCircle className="animate-spin" />}
@@ -1708,64 +1750,57 @@ export function MemoryUniverse() {
                     ? '최대 추론 중 · 최대 3분'
                     : 'AI History Brief 생성'}
                 </Button>
+                {briefFailure && (
+                  <div className="brief-inline-error" role="alert">
+                    <span>{briefFailure}</span>
+                    {briefDraft && (
+                      <pre className="llm-plain-output">{briefDraft}</pre>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void generateBrief()}
+                    >
+                      Brief 다시 시도
+                    </Button>
+                  </div>
+                )}
                 <small>
                   생성 시 현재 이슈와 선택·수집한 이력이 OpenRouter에
                   전송됩니다. 키가 없어도 위의 원문 탐색과 이슈 처리는 사용할 수
                   있습니다.
                 </small>
+                {briefBusy && (
+                  <div className="brief-stream-live" aria-live="polite">
+                    <small>
+                      스트리밍 연결 유지 · {Math.floor(briefElapsedMs / 1000)}초
+                      경과
+                    </small>
+                    {briefDraft && (
+                      <pre className="llm-plain-output">{briefDraft}</pre>
+                    )}
+                  </div>
+                )}
                 {brief && (
                   <div className="generated-brief">
                     <span className="section-kicker">AI HISTORY BRIEF</span>
-                    <h3>현재 이슈에 대한 해석</h3>
-                    <p>{brief.brief.summary}</p>
-                    {brief.brief.findings.map((finding, index) => (
-                      <div className="brief-finding" key={`finding-${index}`}>
-                        <small>
-                          {finding.kind === 'fact'
-                            ? '확인된 사실'
-                            : '추정 · 추가 확인 필요'}
-                        </small>
-                        <p>{finding.text}</p>
-                        <div className="brief-citations">
-                          {finding.evidenceIds.map((id) => (
-                            <button
-                              key={id}
-                              onClick={() => {
-                                const issue = byId.get(id);
-                                if (issue) selectIssue(issue);
-                              }}
-                            >
-                              {shortId(id)} ↗
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                    {!!brief.brief.cautions.length && <h3>주의할 점</h3>}
-                    {brief.brief.cautions.map((finding, index) => (
-                      <div className="brief-finding" key={`caution-${index}`}>
-                        <p>{finding.text}</p>
-                        <div className="brief-citations">
-                          {finding.evidenceIds.map((id) => (
-                            <button
-                              key={id}
-                              onClick={() => {
-                                const issue = byId.get(id);
-                                if (issue) selectIssue(issue);
-                              }}
-                            >
-                              {shortId(id)} ↗
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                    <h3>다음 확인 사항</h3>
-                    <ol>
-                      {brief.brief.nextActions.map((action, index) => (
-                        <li key={index}>{action}</li>
+                    {brief.warning && (
+                      <p className="insight-stream-warning">{brief.warning}</p>
+                    )}
+                    <pre className="llm-plain-output">{brief.content}</pre>
+                    <div className="brief-citations">
+                      {brief.evidenceIds.map((id) => (
+                        <button
+                          key={id}
+                          onClick={() => {
+                            const issue = byId.get(id);
+                            if (issue) selectIssue(issue);
+                          }}
+                        >
+                          {shortId(id)} 원문 ↗
+                        </button>
                       ))}
-                    </ol>
+                    </div>
                     <small>
                       AI 출력은 원본 기록을 대체하지 않습니다. 조치 전 근거를
                       확인하세요.
@@ -1876,7 +1911,7 @@ export function MemoryUniverse() {
                 size="sm"
                 variant="outline"
                 onClick={() => void generateInsight('analysis')}
-                disabled={Boolean(insightBusy) || !llmStatus?.ready}
+                disabled={Boolean(insightBusy)}
               >
                 {insightBusy === 'analysis' ? (
                   <LoaderCircle className="animate-spin" />
@@ -1889,7 +1924,7 @@ export function MemoryUniverse() {
                 size="sm"
                 variant="outline"
                 onClick={() => void generateInsight('test-cases')}
-                disabled={Boolean(insightBusy) || !llmStatus?.ready}
+                disabled={Boolean(insightBusy)}
               >
                 {insightBusy === 'test-cases' ? (
                   <LoaderCircle className="animate-spin" />
@@ -2303,7 +2338,9 @@ export function MemoryUniverse() {
                     <br />
                     <span>
                       {selectedArtifact?.compileStatus === 'ready'
-                        ? `AI 기억 컴파일 완료 · ${selectedArtifact.embeddingStatus === 'ready' ? '의미 연결 완료' : '벡터 재시도 필요'}`
+                        ? selectedArtifact.compileModel === 'source-fallback'
+                          ? `원문 기반 기억 생성 완료 · ${selectedArtifact.embeddingStatus === 'ready' ? '의미 연결 완료' : '벡터 재시도 필요'} · AI 보강 재시도 가능`
+                          : `AI 기억 컴파일 완료 · ${selectedArtifact.embeddingStatus === 'ready' ? '의미 연결 완료' : '벡터 재시도 필요'}`
                         : selectedArtifact?.compileStatus === 'failed'
                           ? 'AI 기억 생성 실패 · 원문과 완료 상태는 보존됨'
                           : selected.memory
@@ -2314,15 +2351,8 @@ export function MemoryUniverse() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={
-                      compilingIds.has(selected.id) || !llmStatus?.ready
-                    }
-                    onClick={() =>
-                      void compileMemory(
-                        selected.id,
-                        selectedArtifact?.compileStatus === 'failed',
-                      )
-                    }
+                    disabled={compilingIds.has(selected.id)}
+                    onClick={() => void compileMemory(selected.id)}
                   >
                     {compilingIds.has(selected.id) ? (
                       <LoaderCircle className="animate-spin" />
@@ -2331,9 +2361,11 @@ export function MemoryUniverse() {
                     )}
                     {compilingIds.has(selected.id)
                       ? '최대 추론 중 · 최대 3분'
-                      : selectedArtifact?.compileStatus === 'ready'
-                        ? 'AI 기억 갱신'
-                        : 'AI 기억 생성'}
+                      : selectedArtifact?.compileModel === 'source-fallback'
+                        ? 'AI 보강 재시도'
+                        : selectedArtifact?.compileStatus === 'ready'
+                          ? 'AI 기억 갱신'
+                          : 'AI 기억 생성'}
                   </Button>
                 </div>
               )}
@@ -2377,6 +2409,8 @@ export function MemoryUniverse() {
           analysis={analysis}
           testPlan={testPlan}
           busy={insightBusy}
+          draft={insightDraft}
+          elapsedMs={insightElapsedMs}
           failure={
             insightFailure?.mode === insightMode ? insightFailure.message : ''
           }

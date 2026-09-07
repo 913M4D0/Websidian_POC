@@ -132,16 +132,20 @@ void test('analysis and test plan reject invented citations and unexpected field
   );
 });
 
-void test('automatic provider requests keep maximum reasoning and no tools or fallback', () => {
+void test('automatic provider requests stream concise delimiter text with endpoint fallback', () => {
   const { context } = buildIssueInsightContext('WS-008', issues);
   for (const kind of ['analysis', 'test-cases'] as const) {
     const request = buildIssueInsightRequest(model, context, kind);
     assert.equal(request.model, 'openai/gpt-5.6-luna');
     assert.deepEqual(request.reasoning, { effort: 'max', exclude: true });
-    assert.equal(request.provider.allow_fallbacks, false);
+    assert.equal(request.stream, true);
+    assert.equal(request.provider.allow_fallbacks, true);
     assert.equal(request.provider.require_parameters, true);
     assert.equal(request.provider.data_collection, 'deny');
     assert.equal('tools' in request, false);
+    assert.equal('response_format' in request, false);
+    assert.match(request.messages[0].content, /<<끝>>/);
+    assert.match(request.messages[0].content, /Never return JSON/);
     assert.match(request.messages[1].content, /WS-008/);
     assert.doesNotMatch(request.messages[0].content, /파트너 주문 화면/);
   }

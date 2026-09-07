@@ -109,11 +109,11 @@ void test('Brief input whitelists query and IDs, not model/prompts/forged eviden
   assert.throws(() => parseBriefInput(null), BriefError);
 });
 
-void test('model selection preserves exact Luna and highest advertised effort with cost ceiling', () => {
+void test('model selection preserves exact Luna, maximum reasoning, and full advertised token budget', () => {
   assert.deepEqual(verifyRequestedModel(catalog, 'openai/gpt-5.6-luna'), {
     id: 'openai/gpt-5.6-luna',
     effort: 'max',
-    maxTokens: 16000,
+    maxTokens: 128000,
   });
   const higherMissing = structuredClone(catalog);
   higherMissing.data[0].reasoning.supported_efforts = ['medium', 'high'];
@@ -150,10 +150,16 @@ void test('every chat path allows maximum reasoning to run for three minutes', (
     new URL('../lib/llm-server.ts', import.meta.url),
     'utf8',
   );
+  assert.match(
+    source,
+    /const generationSignal[\s\S]*AbortSignal\.timeout\(llmPolicy\.generationTimeoutMs\)/,
+  );
+  assert.equal(source.match(/signal: generationSignal\(/g)?.length, 2);
   assert.equal(
-    source.match(/AbortSignal\.timeout\(llmPolicy\.generationTimeoutMs\)/g)
-      ?.length,
-    3,
+    source.match(
+      /signal: AbortSignal\.timeout\(llmPolicy\.generationTimeoutMs\)/g,
+    )?.length,
+    1,
   );
   assert.doesNotMatch(source, /AbortSignal\.timeout\(45_000\)/);
 });
@@ -237,7 +243,7 @@ void test('context cap retains explicitly pinned source without claiming every r
   assert.equal(context.sources[0].issueId, 'issue-29');
 });
 
-void test('provider payload isolates issue text, never enables tools/fallbacks, and uses validated citations', () => {
+void test('provider payload isolates issue text and streams delimiter text with endpoint fallback', () => {
   const context = buildBriefContext(
     { query: '현재 원인 조사' },
     [evidence('WS-001')],
@@ -249,8 +255,9 @@ void test('provider payload isolates issue text, never enables tools/fallbacks, 
   );
   assert.equal(request.model, 'openai/gpt-5.6-luna');
   assert.deepEqual(request.reasoning, { effort: 'max', exclude: true });
-  assert.equal(request.max_tokens, 16000);
-  assert.equal(request.provider.allow_fallbacks, false);
+  assert.equal(request.max_tokens, 128000);
+  assert.equal(request.stream, true);
+  assert.equal(request.provider.allow_fallbacks, true);
   assert.equal(request.provider.require_parameters, true);
   assert.equal(request.provider.data_collection, 'deny');
   assert.equal(request.messages.length, 2);
@@ -261,9 +268,7 @@ void test('provider payload isolates issue text, never enables tools/fallbacks, 
   assert.match(request.messages[1].content, /UNTRUSTED ISSUE TEXT/);
   assert.equal('tools' in request, false);
   assert.equal('apiKey' in request, false);
-  assert.deepEqual(
-    request.response_format.json_schema.schema.properties.findings.items
-      .properties.evidenceIds.items.enum,
-    ['WS-001'],
-  );
+  assert.equal('response_format' in request, false);
+  assert.match(request.messages[0].content, /<<확인사항>>/);
+  assert.match(request.messages[0].content, /WS-001/);
 });

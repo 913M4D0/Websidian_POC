@@ -19,11 +19,13 @@ export type BriefResult = {
 };
 export type BriefResponse = {
   brief: BriefResult;
+  content: string;
   evidenceIds: string[];
   modelId: string;
   reasoning: string;
   generatedAt: string;
-  engine: 'openrouter';
+  engine: 'openrouter' | 'source-fallback';
+  warning?: string;
 };
 export type LlmStatus = {
   ready: boolean;
@@ -167,12 +169,12 @@ export function verifyRequestedModel(
   const parameters = model.supported_parameters;
   if (
     !Array.isArray(parameters) ||
-    ['reasoning', 'max_tokens', 'response_format', 'structured_outputs'].some(
+    ['reasoning', 'max_tokens'].some(
       (parameter) => !parameters.includes(parameter),
     )
   )
     throw new BriefError(
-      '요청 모델의 추론/구조화 출력 지원을 확인하지 못했습니다.',
+      '요청 모델의 추론 설정 지원을 확인하지 못했습니다.',
       503,
     );
   const reasoning =
@@ -202,11 +204,11 @@ export function verifyRequestedModel(
   return {
     id: configuredId,
     effort,
-    // Cost ceiling includes reasoning, never silently lower reasoning effort.
+    // Use the model's full advertised completion budget as explicitly requested.
     maxTokens:
       typeof advertisedMax === 'number' && advertisedMax > 0
-        ? Math.min(16000, Math.floor(advertisedMax))
-        : 16000,
+        ? Math.floor(advertisedMax)
+        : 128000,
   };
 }
 
@@ -305,25 +307,16 @@ export function buildOpenRouterRequest(
   context: ReturnType<typeof buildBriefContext>,
 ) {
   const ids = context.sources.map((source) => source.issueId);
-  const claim = {
-    type: 'object',
-    additionalProperties: false,
-    required: ['text', 'kind', 'evidenceIds'],
-    properties: {
-      text: { type: 'string' },
-      kind: { type: 'string', enum: ['fact', 'inference'] },
-      evidenceIds: { type: 'array', items: { type: 'string', enum: ids } },
-    },
-  };
   return {
     model: model.id,
-    stream: false,
+    stream: true,
     max_tokens: model.maxTokens,
     reasoning: { effort: model.effort, exclude: true },
     provider: {
       require_parameters: true,
-      allow_fallbacks: false,
+      allow_fallbacks: true,
       data_collection: 'deny',
+      sort: 'throughput',
     },
     messages: [
       {
@@ -335,28 +328,13 @@ export function buildOpenRouterRequest(
           'Separate directly documented facts (fact) from your inferences (inference). Similarity, shared resources, graph edges and time proximity do not prove causality.',
           'Consider reuse, intentional behavior, rollback risk, and cross-team side effects only when supported; do not force a scenario or invent a cause.',
           'Summarize only supported findings. nextActions are recommendations, not facts or performed actions. Explicitly label synthetic evidence in the summary when all sources are synthetic.',
-          'Plain text only. Output only the requested JSON object. No HTML, secrets, hidden reasoning, external references or tool calls.',
+          `The only valid evidence IDs are: ${ids.join(', ')}.`,
+          'Return concise Korean plain text, never JSON, Markdown tables, HTML, secrets, hidden reasoning, external references, or tool calls.',
+          'Use this delimiter format exactly: <<요약>> one compact paragraph; repeat <<확인사항>> blocks with <<제목>>, <<구분>>(사실 or 추정), <<근거>>(comma-separated allowed IDs), <<내용>>; repeat <<주의사항>> blocks with the same fields; repeat <<다음행동>> for each action; finish with <<끝>>.',
+          'Produce exactly 3 확인사항, at most 2 주의사항, and at most 3 다음행동. Keep the whole final answer compact enough to finish.',
         ].join('\n'),
       },
       { role: 'user', content: JSON.stringify(context) },
     ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'issue_history_brief',
-        strict: true,
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['summary', 'findings', 'cautions', 'nextActions'],
-          properties: {
-            summary: { type: 'string' },
-            findings: { type: 'array', items: claim },
-            cautions: { type: 'array', items: claim },
-            nextActions: { type: 'array', items: { type: 'string' } },
-          },
-        },
-      },
-    },
   };
 }

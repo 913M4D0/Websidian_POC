@@ -39,10 +39,12 @@ export type IssueAnalysisResponse = {
   rootIssueId: string;
   evidenceIds: string[];
   analysis: IssueAnalysis;
+  content: string;
   modelId: string;
   reasoning: string;
   generatedAt: string;
-  engine: 'openrouter';
+  engine: 'openrouter' | 'source-fallback';
+  warning?: string;
 };
 
 export type IssueTestPlanResponse = {
@@ -50,10 +52,12 @@ export type IssueTestPlanResponse = {
   rootIssueId: string;
   evidenceIds: string[];
   testPlan: IssueTestPlan;
+  content: string;
   modelId: string;
   reasoning: string;
   generatedAt: string;
-  engine: 'openrouter';
+  engine: 'openrouter' | 'source-fallback';
+  warning?: string;
 };
 
 export type IssueInsightContext = {
@@ -305,22 +309,6 @@ export function parseIssueTestPlanOutput(
   };
 }
 
-const claimSchema = (ids: string[]) => ({
-  type: 'object',
-  additionalProperties: false,
-  required: ['title', 'text', 'kind', 'evidenceIds'],
-  properties: {
-    title: { type: 'string' },
-    text: { type: 'string' },
-    kind: { type: 'string', enum: ['fact', 'inference'] },
-    evidenceIds: {
-      type: 'array',
-      minItems: 1,
-      items: { type: 'string', enum: ids },
-    },
-  },
-});
-
 export function buildIssueInsightRequest(
   model: VerifiedModel,
   context: IssueInsightContext,
@@ -329,13 +317,14 @@ export function buildIssueInsightRequest(
   const ids = context.citationIds;
   const common = {
     model: model.id,
-    stream: false,
+    stream: true,
     max_tokens: model.maxTokens,
     reasoning: { effort: model.effort, exclude: true },
     provider: {
       require_parameters: true,
-      allow_fallbacks: false,
+      allow_fallbacks: true,
       data_collection: 'deny',
+      sort: 'throughput',
     },
     messages: [
       {
@@ -348,96 +337,17 @@ export function buildIssueInsightRequest(
           'Use only the provided root issue and related histories. Cite an available issue ID for every factual or inferential item and every test case.',
           'Keep documented facts separate from inferences. Similarity, shared files, graph position, and time proximity do not prove causality.',
           'Do not rewrite source issues, perform actions, call tools, expose secrets, or output hidden reasoning.',
-          'When all records are synthetic, state that plainly. Use accessible language for non-developers and output only the requested JSON object.',
+          `The only valid evidence IDs are: ${ids.join(', ')}.`,
+          'When all records are synthetic, state that plainly. Use accessible language for non-developers.',
+          'Return concise Korean plain text only. Never return JSON, Markdown tables, HTML, secrets, hidden reasoning, external references, or tool calls.',
+          kind === 'analysis'
+            ? 'Use this delimiter format exactly: <<요약>>; repeat <<확인된맥락>> blocks with <<제목>>, <<구분>>(사실 or 추정), <<근거>>(comma-separated allowed IDs), <<내용>>; repeat <<주의할위험>> and <<권장처리>> blocks with the same fields; repeat <<추가확인>> for each question; finish with <<끝>>. Produce exactly 3 맥락, at most 2 risks, exactly 3 recommendations, and at most 2 questions.'
+            : 'Use this delimiter format exactly: <<전략>>; exactly 3 <<테스트케이스>> blocks containing <<번호>>, <<제목>>, <<우선순위>>(필수, 높음, or 보통), <<사전조건>>(at most 2 lines), <<실행단계>>(3 to 5 lines), <<기대결과>>, <<근거>>(comma-separated allowed IDs); at most 2 <<회귀범위>> blocks with <<제목>>, <<구분>>, <<근거>>, <<내용>>; finish with <<끝>>.',
+          'Keep every field short enough for the final answer to finish within the available output budget.',
         ].join('\n'),
       },
       { role: 'user', content: JSON.stringify(context) },
     ],
   };
-  if (kind === 'analysis')
-    return {
-      ...common,
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'issue_history_analysis',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            required: [
-              'summary',
-              'findings',
-              'risks',
-              'recommendations',
-              'openQuestions',
-            ],
-            properties: {
-              summary: { type: 'string' },
-              findings: { type: 'array', items: claimSchema(ids) },
-              risks: { type: 'array', items: claimSchema(ids) },
-              recommendations: { type: 'array', items: claimSchema(ids) },
-              openQuestions: { type: 'array', items: { type: 'string' } },
-            },
-          },
-        },
-      },
-    };
-  return {
-    ...common,
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'issue_history_test_cases',
-        strict: true,
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['strategy', 'cases', 'regressionScope'],
-          properties: {
-            strategy: { type: 'string' },
-            cases: {
-              type: 'array',
-              minItems: 1,
-              maxItems: 12,
-              items: {
-                type: 'object',
-                additionalProperties: false,
-                required: [
-                  'id',
-                  'title',
-                  'priority',
-                  'preconditions',
-                  'steps',
-                  'expected',
-                  'evidenceIds',
-                ],
-                properties: {
-                  id: { type: 'string' },
-                  title: { type: 'string' },
-                  priority: {
-                    type: 'string',
-                    enum: ['critical', 'high', 'medium'],
-                  },
-                  preconditions: { type: 'array', items: { type: 'string' } },
-                  steps: {
-                    type: 'array',
-                    minItems: 1,
-                    items: { type: 'string' },
-                  },
-                  expected: { type: 'string' },
-                  evidenceIds: {
-                    type: 'array',
-                    minItems: 1,
-                    items: { type: 'string', enum: ids },
-                  },
-                },
-              },
-            },
-            regressionScope: { type: 'array', items: claimSchema(ids) },
-          },
-        },
-      },
-    },
-  };
+  return common;
 }
