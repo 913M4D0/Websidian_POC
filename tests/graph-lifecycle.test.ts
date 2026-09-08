@@ -164,6 +164,34 @@ void test('selection and background return preserve the mounted graph camera', (
   );
 });
 
+void test('the graph keeps only essential controls on the main canvas', () => {
+  const universe = readFileSync(
+    new URL('../components/memory-universe.tsx', import.meta.url),
+    'utf8',
+  );
+  const stage = readFileSync(
+    new URL('../components/issue-graph.tsx', import.meta.url),
+    'utf8',
+  );
+  const styles = readFileSync(
+    new URL('../app/workbench.css', import.meta.url),
+    'utf8',
+  );
+
+  assert.doesNotMatch(universe, /className="context-action-bar"/);
+  assert.doesNotMatch(universe, /className="graph-footer"/);
+  assert.doesNotMatch(universe, /type="range"/);
+  assert.doesNotMatch(universe, /처음 고른 이슈에서 이어지는 기록/);
+  assert.doesNotMatch(universe, /배치: 시간 반경/);
+  assert.match(universe, /className="graph-tool-actions"/);
+  assert.match(universe, /aria-label="전체 성운 보기"/);
+  assert.match(universe, /aria-label="선택 이슈 화면에 맞추기"/);
+  assert.match(stage, /\.showNavInfo\(false\)/);
+  assert.doesNotMatch(styles, /\.context-action-bar/);
+  assert.doesNotMatch(styles, /\.graph-footer/);
+  assert.doesNotMatch(styles, /\.graph-settings/);
+});
+
 void test('empty history and unrelated work issue have safe node-only graphs', () => {
   assert.deepEqual(createMemoryGraph([]), { nodes: [], links: [] });
   const active = issues.find((issue) => issue.id === 'WS-008')!;

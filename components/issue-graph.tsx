@@ -28,6 +28,7 @@ type GraphLinkForce = GraphForce & {
 type GraphInstance = {
   graphData: (data?: unknown) => GraphInstance;
   backgroundColor: (color: string) => GraphInstance;
+  showNavInfo: (enabled: boolean) => GraphInstance;
   width: (width: number) => GraphInstance;
   height: (height: number) => GraphInstance;
   nodeId: (key: string) => GraphInstance;
@@ -779,6 +780,7 @@ export function GraphStage({
 
         graph
           .backgroundColor('rgba(0,0,0,0)')
+          .showNavInfo(false)
           .width(containerRef.current.clientWidth)
           .height(containerRef.current.clientHeight)
           .graphData({

@@ -15,6 +15,7 @@ import {
   Check,
   ChevronRight,
   CircleDot,
+  Copy,
   FileText,
   FlaskConical,
   GitBranch,
@@ -27,7 +28,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { GraphStage, type GravitySummary } from '@/components/issue-graph';
+import { GraphStage } from '@/components/issue-graph';
 import { DelimitedOutputView } from '@/components/delimited-output-view';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -129,6 +130,40 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   }
   if (data === null) throw new Error('서버 응답 형식을 확인하지 못했습니다.');
   return data as T;
+}
+
+async function copyPlainText(value: string) {
+  if (!value) throw new Error('복사할 결과가 없습니다.');
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Continue with the selection-based fallback for restricted browsers.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  const activeElement =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  textarea.value = value;
+  textarea.readOnly = true;
+  textarea.style.position = 'fixed';
+  textarea.style.inset = '0 auto auto -9999px';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, value.length);
+  const fallbackCopy = Reflect.get(document, 'execCommand');
+  const copied =
+    typeof fallbackCopy === 'function' &&
+    Boolean(fallbackCopy.call(document, 'copy'));
+  textarea.remove();
+  activeElement?.focus({ preventScroll: true });
+  if (!copied) throw new Error('브라우저에서 결과를 복사하지 못했습니다.');
 }
 
 const shortId = (id: string) =>
@@ -626,6 +661,35 @@ function InsightDialog({
   const current = mode === 'analysis' ? analysis : testPlan;
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<{
+    key: string;
+    status: 'copied' | 'failed';
+  } | null>(null);
+
+  const copyResult = async (value: string, key: string) => {
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    try {
+      await copyPlainText(value);
+      setCopyFeedback({ key, status: 'copied' });
+    } catch {
+      setCopyFeedback({ key, status: 'failed' });
+    }
+    copyTimerRef.current = setTimeout(() => {
+      setCopyFeedback((feedback) => (feedback?.key === key ? null : feedback));
+      copyTimerRef.current = null;
+    }, 2200);
+  };
+
+  const copyStatus = (key: string) =>
+    copyFeedback?.key === key ? copyFeedback.status : null;
+
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     if (busy === mode && !draft) followRef.current = true;
@@ -673,14 +737,37 @@ function InsightDialog({
             </button>
           </div>
           {current && !busy && (
-            <Button
-              className="insight-regenerate"
-              size="sm"
-              variant="outline"
-              onClick={onRetry}
-            >
-              <RotateCcw /> 다시 생성
-            </Button>
+            <div className="insight-result-actions">
+              <Button
+                className={`insight-copy ${copyStatus(`${mode}:${current.content}`) === 'copied' ? 'is-copied' : ''}`}
+                size="sm"
+                variant="outline"
+                aria-label={`${mode === 'analysis' ? '이슈 분석' : '테스트 케이스'} 결과 전체 복사`}
+                aria-live="polite"
+                onClick={() =>
+                  void copyResult(current.content, `${mode}:${current.content}`)
+                }
+              >
+                {copyStatus(`${mode}:${current.content}`) === 'copied' ? (
+                  <Check />
+                ) : (
+                  <Copy />
+                )}
+                {copyStatus(`${mode}:${current.content}`) === 'copied'
+                  ? '복사 완료'
+                  : copyStatus(`${mode}:${current.content}`) === 'failed'
+                    ? '복사 실패 · 다시 시도'
+                    : '결과 전체 복사'}
+              </Button>
+              <Button
+                className="insight-regenerate"
+                size="sm"
+                variant="outline"
+                onClick={onRetry}
+              >
+                <RotateCcw /> 다시 생성
+              </Button>
+            </div>
           )}
         </div>
         <div
@@ -729,7 +816,30 @@ function InsightDialog({
                 <strong>AI 결과를 만들지 못했습니다.</strong>
                 <p>{failure}</p>
               </div>
-              {draft && <pre className="llm-plain-output">{draft}</pre>}
+              {draft && (
+                <>
+                  <pre className="llm-plain-output">{draft}</pre>
+                  <Button
+                    className={`insight-copy ${copyStatus(`draft:${draft}`) === 'copied' ? 'is-copied' : ''}`}
+                    size="sm"
+                    variant="outline"
+                    aria-label="현재까지 받은 AI 결과 복사"
+                    aria-live="polite"
+                    onClick={() => void copyResult(draft, `draft:${draft}`)}
+                  >
+                    {copyStatus(`draft:${draft}`) === 'copied' ? (
+                      <Check />
+                    ) : (
+                      <Copy />
+                    )}
+                    {copyStatus(`draft:${draft}`) === 'copied'
+                      ? '복사 완료'
+                      : copyStatus(`draft:${draft}`) === 'failed'
+                        ? '복사 실패 · 다시 시도'
+                        : '현재까지 받은 내용 복사'}
+                  </Button>
+                </>
+              )}
               <Button size="sm" variant="outline" onClick={onRetry}>
                 다시 시도
               </Button>
@@ -805,15 +915,13 @@ export function MemoryUniverse() {
   const [notice, setNotice] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [gravityRootId, setGravityRootId] = useState<string | null>(null);
-  const [gravity, setGravity] = useState<GravitySummary | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [resetVersion, setResetVersion] = useState(0);
   const [focusVersion, setFocusVersion] = useState(0);
   const [graphReady, setGraphReady] = useState(false);
   const [graphError, setGraphError] = useState(false);
-  const [highlightStrength, setHighlightStrength] = useState(0.7);
-  const [neighbors, setNeighbors] = useState(5);
-  const [neighborDraft, setNeighborDraft] = useState(5);
+  const highlightStrength = 0.7;
+  const neighbors = 5;
   const [tab, setTab] = useState<'issues' | 'memories' | 'search' | 'brief'>(
     'issues',
   );
@@ -1436,13 +1544,6 @@ export function MemoryUniverse() {
     setInsightMode(null);
     setInsightFailure(null);
   }
-  function commitNeighbors() {
-    if (neighborDraft === neighbors) return;
-    setNeighbors(neighborDraft);
-    setGraphReady(false);
-    setGravityRootId(null);
-  }
-
   return (
     <main className={`issue-workbench ${sidebarOpen ? 'sidebar-visible' : ''}`}>
       <header className="workbench-header">
@@ -1974,22 +2075,12 @@ export function MemoryUniverse() {
               birthNodeId={birthIssueId ? `memory:${birthIssueId}` : null}
               birthVersion={birthVersion}
               onSelect={select}
-              onGravityChange={setGravity}
+              onGravityChange={() => undefined}
               onReady={() => setGraphReady(true)}
               onError={() => setGraphError(true)}
             />
           )}
           <div className="graph-toolbar" data-graph-obstruction="top">
-            <div>
-              <span className="section-kicker">
-                {gravityRootId ? '관련 이슈 흐름' : '전체 이슈 성운'}
-              </span>
-              <h1>
-                {gravityRootId
-                  ? '처음 고른 이슈에서 이어지는 기록'
-                  : '모든 이슈가, 하나의 기억 우주로.'}
-              </h1>
-            </div>
             <div className="graph-tool-actions">
               <Button
                 size="icon-sm"
@@ -2018,37 +2109,6 @@ export function MemoryUniverse() {
               </Button>
             </div>
           </div>
-          {contextRoot && (
-            <div className="context-action-bar" data-graph-obstruction="top">
-              <span
-                className="context-indicator"
-                style={{
-                  backgroundColor:
-                    contextRoot.status === 'open'
-                      ? '#ffffff'
-                      : colorFor(contextRoot.team),
-                  boxShadow: `0 0 16px ${
-                    contextRoot.status === 'open'
-                      ? '#ffffff88'
-                      : `${colorFor(contextRoot.team)}88`
-                  }`,
-                }}
-              />
-              <button
-                className="context-root-summary"
-                onClick={() => inspectIssue(contextRoot)}
-              >
-                <small>분석 기준 · {shortId(contextRoot.id)}</small>
-                <strong>{contextRoot.title}</strong>
-              </button>
-              <span className="context-evidence-status">
-                <Sparkles />
-                {contextBusy
-                  ? '관련 이력 연결 중'
-                  : `관련 이력 ${history?.evidence.length ?? 0}건 준비`}
-              </span>
-            </div>
-          )}
           {birthIssueId && (
             <div className="star-birth-effect" key={birthVersion}>
               <Sparkles />
@@ -2113,61 +2173,6 @@ export function MemoryUniverse() {
               </p>
             </div>
           )}
-          <div className="graph-footer" data-graph-obstruction="bottom">
-            <div className="graph-facts">
-              <span className="graph-status-legend">
-                <i className="node-swatch is-active" /> 진행 {openCount}
-                <i className="node-swatch is-memory" /> 완료 {memoryCount}
-              </span>
-              <span>{graph.links.length} LINKS</span>
-              <span>
-                {gravityRootId && gravity
-                  ? `직접 ${gravity.directCount} · 트리 ${gravity.treeCount} · 배경 ${gravity.sedimentCount}`
-                  : '느린 공전 · 상하 파동 · 확대 · 노드 드래그'}
-              </span>
-            </div>
-            <div className="graph-settings">
-              <label>
-                강조
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={highlightStrength}
-                  onChange={(event) =>
-                    setHighlightStrength(Number(event.target.value))
-                  }
-                />
-                <output>{Math.round(highlightStrength * 100)}%</output>
-              </label>
-              <label>
-                관계선
-                <input
-                  type="range"
-                  min="1"
-                  max="10"
-                  step="1"
-                  value={neighborDraft}
-                  onChange={(event) =>
-                    setNeighborDraft(Number(event.target.value))
-                  }
-                  onPointerUp={commitNeighbors}
-                  onKeyUp={commitNeighbors}
-                  onBlur={commitNeighbors}
-                />
-                <output>{neighborDraft} / 노드</output>
-              </label>
-            </div>
-            <p>
-              배치: 시간 반경의 구형 5개 나선팔 + 관계 기반 인력 · 흰색: 진행 중
-              · 색상: 완료 기억 · 트리 최대 3단계 · 선은 인과관계 확정이
-              아닙니다.
-            </p>
-            {submittedQuery && (
-              <p>탐색 상위 12건을 밝게 표시 · 검색 결과 전체는 왼쪽에서 확인</p>
-            )}
-          </div>
         </section>
         {selected && (
           <aside

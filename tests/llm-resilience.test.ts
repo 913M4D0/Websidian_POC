@@ -831,3 +831,18 @@ void test('the UI formats complete delimiters and preserves raw streaming or bro
   );
   assert.match(memoryService, /compileModel !== 'source-fallback'/);
 });
+
+void test('completed AI results can be copied verbatim with a restricted-browser fallback', () => {
+  const source = readFileSync(
+    new URL('../components/memory-universe.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /current && !busy &&/);
+  assert.match(source, /copyResult\(current\.content/);
+  assert.match(source, /navigator\.clipboard\?\.writeText/);
+  assert.match(source, /Reflect\.get\(document, 'execCommand'\)/);
+  assert.match(source, /결과 전체 복사/);
+  assert.match(source, /복사 완료/);
+  assert.match(source, /복사 실패 · 다시 시도/);
+  assert.match(source, /현재까지 받은 내용 복사/);
+});
