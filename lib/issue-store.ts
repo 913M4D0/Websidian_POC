@@ -128,3 +128,29 @@ export async function saveIssueRevision(
 
 // Kept for existing callers; progress and completion share the same atomic CAS.
 export const saveResolution = saveIssueRevision;
+
+const resettableDemoIds = new Set(['WS-008', 'WS-016', 'WS-024']);
+
+/** Restore a representative seed exactly by removing only this owner's overlay. */
+export async function resetDemoIssueOverlay(
+  actor: string,
+  id: string,
+  expectedRevision: number,
+) {
+  const seed = seedIssues.find((issue) => issue.id === id);
+  if (!seed || !seed.synthetic || !resettableDemoIds.has(id))
+    throw new ApiError(400, '대표 시연 이슈만 초기 상태로 되돌릴 수 있습니다.');
+  const db = await database();
+  const result = await db
+    .prepare(
+      'DELETE FROM websidian_issues WHERE owner_id = ? AND id = ? AND revision = ?',
+    )
+    .bind(actor, id, expectedRevision)
+    .run();
+  if (!result.meta.changes)
+    throw new ApiError(
+      409,
+      '다른 창에서 이슈가 변경되었습니다. 새로고침 후 다시 시도해 주세요.',
+    );
+  return withSource(seed);
+}

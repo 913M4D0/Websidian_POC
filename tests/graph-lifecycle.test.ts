@@ -148,6 +148,22 @@ void test('selection never fabricates or hides nodes', () => {
   );
 });
 
+void test('selection and background return preserve the mounted graph camera', () => {
+  const source = readFileSync(
+    new URL('../components/memory-universe.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    source,
+    /key=\{`\$\{dataVersion\}:\$\{neighbors\}:\$\{birthVersion\}`\}/,
+  );
+  assert.doesNotMatch(source, /key=\{`[^`]*contextRootId[^`]*`\}/);
+  assert.match(
+    source,
+    /createMemoryGraph\(issues, neighbors, null, artifacts\)/,
+  );
+});
+
 void test('empty history and unrelated work issue have safe node-only graphs', () => {
   assert.deepEqual(createMemoryGraph([]), { nodes: [], links: [] });
   const active = issues.find((issue) => issue.id === 'WS-008')!;

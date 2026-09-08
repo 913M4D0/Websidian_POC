@@ -71,6 +71,17 @@ export async function findMemoryArtifact(actor: string, issueId: string) {
   return row ? parse(row.payload) : null;
 }
 
+export async function deleteMemoryArtifact(actor: string, issueId: string) {
+  await (
+    await database()
+  )
+    .prepare(
+      'DELETE FROM websidian_memory_artifacts WHERE owner_id = ? AND issue_id = ?',
+    )
+    .bind(actor, issueId)
+    .run();
+}
+
 export async function saveMemoryArtifacts(
   actor: string,
   artifacts: MemoryArtifact[],

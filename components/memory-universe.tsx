@@ -646,28 +646,42 @@ function InsightDialog({
         showCloseButton
       >
         <DialogHeader>
-          <DialogTitle>
-            {mode === 'analysis' ? '이슈 분석 결과' : '테스트 케이스'}
+          <DialogTitle className="insight-dialog-title">
+            <Sparkles /> AI 이슈 워크벤치
           </DialogTitle>
           <DialogDescription>
             분석 기준 · {shortId(root.id)} · {root.title}
           </DialogDescription>
         </DialogHeader>
-        <div className="insight-tabs" aria-label="AI 결과 전환">
-          <button
-            aria-pressed={mode === 'analysis'}
-            disabled={Boolean(busy)}
-            onClick={() => onMode('analysis')}
-          >
-            <BrainCircuit /> 분석 결과
-          </button>
-          <button
-            aria-pressed={mode === 'test-cases'}
-            disabled={Boolean(busy)}
-            onClick={() => onMode('test-cases')}
-          >
-            <FlaskConical /> 테스트 케이스
-          </button>
+        <div className="insight-navigation">
+          <div className="insight-tabs" aria-label="AI 결과 전환">
+            <button
+              aria-pressed={mode === 'analysis'}
+              disabled={Boolean(busy)}
+              onClick={() => onMode('analysis')}
+            >
+              <BrainCircuit /> 이슈 분석
+              {analysis && <span>완료</span>}
+            </button>
+            <button
+              aria-pressed={mode === 'test-cases'}
+              disabled={Boolean(busy)}
+              onClick={() => onMode('test-cases')}
+            >
+              <FlaskConical /> 테스트 케이스
+              {testPlan && <span>완료</span>}
+            </button>
+          </div>
+          {current && !busy && (
+            <Button
+              className="insight-regenerate"
+              size="sm"
+              variant="outline"
+              onClick={onRetry}
+            >
+              <RotateCcw /> 다시 생성
+            </Button>
+          )}
         </div>
         <div
           ref={scrollRef}
@@ -723,7 +737,7 @@ function InsightDialog({
           )}
           {!busy && !failure && !current && (
             <div className="insight-empty">
-              아직 생성하지 않은 결과입니다. 그래프 위의 버튼으로 생성해 주세요.
+              아직 생성하지 않은 결과입니다. AI 이슈 도구에서 생성해 주세요.
             </div>
           )}
           {mode === 'analysis' && analysis && busy !== mode && (
@@ -814,6 +828,7 @@ export function MemoryUniverse() {
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [progressText, setProgressText] = useState('');
   const [progressBusy, setProgressBusy] = useState(false);
+  const [demoResetBusy, setDemoResetBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [referenceId, setReferenceId] = useState<string | undefined>();
@@ -942,8 +957,8 @@ export function MemoryUniverse() {
   }, []);
 
   const graph = useMemo(
-    () => createMemoryGraph(issues, neighbors, contextRootId, artifacts),
-    [issues, neighbors, contextRootId, artifacts],
+    () => createMemoryGraph(issues, neighbors, null, artifacts),
+    [issues, neighbors, artifacts],
   );
   const byId = useMemo(
     () => new Map(issues.map((issue) => [issue.id, issue])),
@@ -1032,8 +1047,6 @@ export function MemoryUniverse() {
     setTestPlan(null);
     setInsightMode(null);
     setReferenceId(issue.id);
-    setGraphReady(false);
-    setGraphError(false);
     void loadContext(issue);
     if (window.innerWidth <= 680) setSidebarOpen(false);
   }
@@ -1377,6 +1390,42 @@ export function MemoryUniverse() {
         insightAbortRef.current = null;
         setInsightBusy(null);
       }
+    }
+  }
+
+  function openInsight(kind: 'analysis' | 'test-cases') {
+    if (insightBusy) return;
+    const cached = kind === 'analysis' ? analysis : testPlan;
+    if (cached) {
+      setInsightMode(kind);
+      setInsightFailure(null);
+      return;
+    }
+    void generateInsight(kind);
+  }
+
+  async function resetRepresentativeIssue() {
+    if (!selected || demoResetBusy || !(selected.id in representativeScenarios))
+      return;
+    setDemoResetBusy(true);
+    setError('');
+    try {
+      const data = await api<{ issue: Issue }>(
+        `/api/issues/${encodeURIComponent(selected.id)}/reset-demo`,
+        { expectedRevision: selected.revision },
+      );
+      setArtifacts((current) =>
+        current.filter((artifact) => artifact.issueId !== data.issue.id),
+      );
+      saved(data.issue);
+      setNotice(
+        `${shortId(data.issue.id)}을(를) 처리 전 대표 시나리오로 되돌렸습니다.`,
+      );
+      await refreshMemoryArtifacts();
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setDemoResetBusy(false);
     }
   }
 
@@ -1912,7 +1961,7 @@ export function MemoryUniverse() {
         >
           {graph.nodes.length > 0 && (
             <GraphStage
-              key={`${dataVersion}:${neighbors}:${contextRootId ?? 'nebula'}:${birthVersion}`}
+              key={`${dataVersion}:${neighbors}:${birthVersion}`}
               nodes={graph.nodes}
               links={graph.links}
               selectedId={selectedNodeId}
@@ -1985,36 +2034,19 @@ export function MemoryUniverse() {
                   }`,
                 }}
               />
-              <button onClick={() => inspectIssue(contextRoot)}>
+              <button
+                className="context-root-summary"
+                onClick={() => inspectIssue(contextRoot)}
+              >
                 <small>분석 기준 · {shortId(contextRoot.id)}</small>
                 <strong>{contextRoot.title}</strong>
               </button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void generateInsight('analysis')}
-                disabled={Boolean(insightBusy)}
-              >
-                {insightBusy === 'analysis' ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : (
-                  <BrainCircuit />
-                )}
-                이 이슈 분석
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void generateInsight('test-cases')}
-                disabled={Boolean(insightBusy)}
-              >
-                {insightBusy === 'test-cases' ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : (
-                  <FlaskConical />
-                )}
-                테스트 케이스
-              </Button>
+              <span className="context-evidence-status">
+                <Sparkles />
+                {contextBusy
+                  ? '관련 이력 연결 중'
+                  : `관련 이력 ${history?.evidence.length ?? 0}건 준비`}
+              </span>
             </div>
           )}
           {birthIssueId && (
@@ -2161,6 +2193,60 @@ export function MemoryUniverse() {
                 <X size={17} />
               </button>
             </div>
+            {contextRoot && (
+              <section className="inspector-ai-tools" aria-label="AI 이슈 도구">
+                <div className="inspector-ai-heading">
+                  <span>
+                    <Sparkles /> <strong>AI 이슈 도구</strong>
+                  </span>
+                  <small>{shortId(contextRoot.id)} 기준</small>
+                </div>
+                <div className="inspector-ai-actions">
+                  <button
+                    className="inspector-ai-action is-analysis"
+                    disabled={Boolean(insightBusy)}
+                    aria-haspopup="dialog"
+                    onClick={() => openInsight('analysis')}
+                  >
+                    <span className="ai-action-icon">
+                      {insightBusy === 'analysis' ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <BrainCircuit />
+                      )}
+                    </span>
+                    <span className="ai-action-copy">
+                      <strong>
+                        {analysis ? '분석 결과 보기' : '이슈 분석'}
+                      </strong>
+                      <small>원인 · 위험 · 처리 방향</small>
+                    </span>
+                    <ChevronRight />
+                  </button>
+                  <button
+                    className="inspector-ai-action is-test"
+                    disabled={Boolean(insightBusy)}
+                    aria-haspopup="dialog"
+                    onClick={() => openInsight('test-cases')}
+                  >
+                    <span className="ai-action-icon">
+                      {insightBusy === 'test-cases' ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <FlaskConical />
+                      )}
+                    </span>
+                    <span className="ai-action-copy">
+                      <strong>
+                        {testPlan ? '테스트 결과 보기' : '테스트 케이스'}
+                      </strong>
+                      <small>이력 기반 검증 시나리오</small>
+                    </span>
+                    <ChevronRight />
+                  </button>
+                </div>
+              </section>
+            )}
             <div className="inspector-scroll">
               <div className="issue-identity">
                 <span
@@ -2449,6 +2535,21 @@ export function MemoryUniverse() {
                           ? 'AI 기억 갱신'
                           : 'AI 기억 생성'}
                   </Button>
+                  {selected.id in representativeScenarios && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={demoResetBusy}
+                      onClick={() => void resetRepresentativeIssue()}
+                    >
+                      {demoResetBusy ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <RotateCcw />
+                      )}
+                      대표 이슈 다시 열기
+                    </Button>
+                  )}
                 </div>
               )}
             </div>

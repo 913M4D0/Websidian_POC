@@ -96,3 +96,32 @@ void test('real scenario data is searchable and query state leaves source record
   assert.ok(pair.resourceScore > 0);
   assert.equal(pair.timeDistanceDays, 8);
 });
+
+void test('representative demo reset is owner-scoped and restores the seed overlay', () => {
+  const store = readFileSync(
+    new URL('../lib/issue-store.ts', import.meta.url),
+    'utf8',
+  );
+  const memoryStore = readFileSync(
+    new URL('../lib/memory-store.ts', import.meta.url),
+    'utf8',
+  );
+  const route = readFileSync(
+    new URL('../app/api/issues/[id]/reset-demo/route.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    store,
+    /resettableDemoIds = new Set\(\['WS-008', 'WS-016', 'WS-024'\]\)/,
+  );
+  assert.match(
+    store,
+    /DELETE FROM websidian_issues WHERE owner_id = \? AND id = \? AND revision = \?/,
+  );
+  assert.match(
+    memoryStore,
+    /DELETE FROM websidian_memory_artifacts WHERE owner_id = \? AND issue_id = \?/,
+  );
+  assert.match(route, /authenticate\(request, true\)/);
+  assert.match(route, /deleteMemoryArtifact\(actor, id\)/);
+});

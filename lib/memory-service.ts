@@ -20,6 +20,7 @@ import {
   memoryIndexSnapshot,
   saveMemoryArtifacts,
 } from './memory-store.ts';
+import { findIssue } from './issue-store.ts';
 import { sourceMemory } from './delimited-output.ts';
 
 function compiledFrom(artifact?: MemoryArtifact | null): CompiledMemory | null {
@@ -223,6 +224,12 @@ export async function compileAndIndexIssue(actor: string, issue: Issue) {
       error:
         'AI 요약은 저장됐지만 의미 벡터 생성에 실패했습니다. 다시 시도할 수 있습니다.',
     };
+    const current = await findIssue(actor, issue.id);
+    if (current.status !== 'closed' || current.revision !== issue.revision)
+      throw new MemoryArtifactError(
+        '이슈 상태가 변경되어 기억 생성을 중단했습니다.',
+        409,
+      );
     await saveMemoryArtifacts(actor, [ready]);
     return {
       artifact: ready,
@@ -234,6 +241,12 @@ export async function compileAndIndexIssue(actor: string, issue: Issue) {
   const merged = new Map(all.map((artifact) => [artifact.issueId, artifact]));
   merged.set(issue.id, ready);
   const recalculated = withRecalculatedNeighbors([...merged.values()]);
+  const current = await findIssue(actor, issue.id);
+  if (current.status !== 'closed' || current.revision !== issue.revision)
+    throw new MemoryArtifactError(
+      '이슈 상태가 변경되어 기억 생성을 중단했습니다.',
+      409,
+    );
   await saveMemoryArtifacts(actor, recalculated);
   return {
     artifact: recalculated.find((artifact) => artifact.issueId === issue.id)!,
