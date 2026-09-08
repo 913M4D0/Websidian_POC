@@ -157,12 +157,16 @@ async function copyPlainText(value: string) {
   textarea.focus();
   textarea.select();
   textarea.setSelectionRange(0, value.length);
-  const fallbackCopy = Reflect.get(document, 'execCommand');
-  const copied =
-    typeof fallbackCopy === 'function' &&
-    Boolean(fallbackCopy.call(document, 'copy'));
-  textarea.remove();
-  activeElement?.focus({ preventScroll: true });
+  let copied = false;
+  try {
+    const fallbackCopy = Reflect.get(document, 'execCommand');
+    copied =
+      typeof fallbackCopy === 'function' &&
+      Boolean(fallbackCopy.call(document, 'copy'));
+  } finally {
+    textarea.remove();
+    activeElement?.focus({ preventScroll: true });
+  }
   if (!copied) throw new Error('브라우저에서 결과를 복사하지 못했습니다.');
 }
 
