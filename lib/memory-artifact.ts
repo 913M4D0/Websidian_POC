@@ -317,7 +317,7 @@ export function buildMemoryCompileRequest(
           'Summary is retrieval metadata, not a replacement title/body and is shown only through a later Brief.',
           'Facets are free-form observations; do not force a fixed taxonomy.',
           'Return concise Korean plain text only, never JSON, Markdown tables, HTML, secrets, hidden reasoning, or tool calls.',
-          'Use this delimiter format exactly: <<요약>> at most 2 sentences; <<핵심어>> at most 8 short lines; at most 4 <<분류>> blocks containing <<이름>> and <<값>> with at most 4 lines; finish with <<끝>>.',
+          'Use this delimiter format exactly: write at most 2 summary sentences directly after <<요약>>; write at most 8 short keyword lines directly after <<핵심어>>; then write at most 4 <<분류>> blocks containing exactly <<이름>> followed by <<값>> with at most 4 lines; finish with <<끝>>. Never put <<이름>> or <<값>> inside <<요약>> or <<핵심어>>.',
           'Begin immediately with <<요약>>. Keep the entire answer under 2,500 Korean characters and do not try to use the full token budget.',
         ].join('\n'),
       },

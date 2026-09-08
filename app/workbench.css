@@ -278,8 +278,8 @@
 }
 .brief-inline-error {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: 10px;
   margin-top: 10px;
   padding: 9px 10px;
@@ -287,6 +287,9 @@
   background: #2d2323;
   color: #e5b7ad;
   font-size: 10.5px;
+}
+.brief-inline-error > * {
+  min-width: 0;
 }
 .generated-brief {
   margin-top: 24px;
@@ -1151,6 +1154,9 @@
   min-height: 0;
   flex: 1;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  container-type: inline-size;
 }
 .brief-workspace h2 {
   font-size: 20px;
@@ -1160,7 +1166,8 @@
   letter-spacing: -0.04em;
   margin: 12px 0;
 }
-.brief-workspace p {
+.brief-workspace > p,
+.brief-empty > p {
   font-size: 11px;
   line-height: 1.9;
   color: #949494;
@@ -1684,9 +1691,22 @@
 
 /* AI result sheet */
 .insight-dialog {
+  display: grid !important;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: min(90dvh, 760px);
+  max-height: 90dvh;
+  overflow: hidden !important;
   border-color: #454b50 !important;
   background: #202224 !important;
   color: #d4d4d4;
+}
+.insight-dialog [data-slot='dialog-header'] {
+  min-width: 0;
+  padding-inline-end: 40px;
+}
+.insight-dialog [data-slot='dialog-description'] {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .insight-tabs {
   display: grid;
@@ -1711,12 +1731,24 @@
   background: #303438;
   color: #f0f0f0;
 }
+.insight-tabs button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
 .insight-tabs svg {
   width: 16px;
 }
+.insight-content-scroll {
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
+}
 .insight-loading,
 .insight-empty {
-  min-height: 230px;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1725,23 +1757,55 @@
   color: #aeb7bc;
   text-align: center;
 }
-.insight-loading span,
+.insight-loading.has-output {
+  display: block;
+  text-align: left;
+}
+.insight-stream-status {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid #3a4044;
+  border-radius: 4px;
+  background: color-mix(in srgb, #202224 94%, transparent);
+  backdrop-filter: blur(8px);
+  text-align: left;
+}
+.insight-stream-status > svg {
+  flex: none;
+}
+.insight-stream-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.insight-stream-status strong {
+  color: #d6dbdd;
+  font-size: 12.5px;
+}
+.insight-stream-status small,
 .insight-empty {
   font-size: 12px;
 }
 .insight-loading .llm-plain-output {
   width: 100%;
-  max-height: 48dvh;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   text-align: left;
 }
 .insight-loading .llm-section-list {
   width: 100%;
-  max-height: 52dvh;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   text-align: left;
 }
 .insight-result {
+  min-width: 0;
   padding: 8px 2px;
 }
 .llm-plain-output {
@@ -1757,6 +1821,7 @@
   line-height: 1.85;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .llm-section-list {
   display: grid;
@@ -1835,6 +1900,7 @@
   line-height: 1.8;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .llm-section-body.is-empty-stream {
   min-height: 45px;
@@ -1866,6 +1932,7 @@
   line-height: 1.75;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .llm-stream-caret {
   display: inline-block;
@@ -1897,7 +1964,24 @@
   line-height: 1.65;
 }
 @media (max-width: 560px) {
+  .insight-dialog {
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+    gap: 10px !important;
+    padding: 12px !important;
+  }
   .llm-section-fields > div {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+}
+@media (max-width: 360px) {
+  .insight-tabs {
+    grid-template-columns: 1fr;
+  }
+}
+@container (max-width: 420px) {
+  .brief-workspace .llm-section-fields > div {
     grid-template-columns: 1fr;
     gap: 3px;
   }

@@ -94,6 +94,11 @@ void test('coalesced browser SSE is painted progressively before its result reso
     '<<구분>>사실',
     '<<근거>>WS-001',
     '<<내용>>확인된 내용',
+    '<<권장처리>>',
+    '<<제목>>안전한 처리',
+    '<<구분>>추정',
+    '<<근거>>WS-001',
+    '<<내용>>원문 범위를 먼저 확인한다.',
     '<<끝>>',
   ].join('\n');
   const transport = [
@@ -122,6 +127,7 @@ void test('coalesced browser SSE is painted progressively before its result reso
   assert.equal(result.content, content);
   assert.equal(visible, content);
   assert.ok(snapshots.length > 5);
+  assert.ok(snapshots.length < 120);
   assert.equal(events.at(-2), 'paint');
   assert.ok(
     snapshots.some(
@@ -132,7 +138,7 @@ void test('coalesced browser SSE is painted progressively before its result reso
   );
   assert.equal(
     parseDelimitedDisplay(snapshots.at(-1) || '', 'analysis')?.blocks.length,
-    2,
+    3,
   );
 });
 
@@ -281,6 +287,464 @@ void test('incomplete or malformed delimiter output falls back without alteratio
     ),
     null,
   );
+});
+
+void test('known delimiter names still fall back raw when their structure is broken', () => {
+  const validAnalysis = [
+    '<<요약>>정상 요약',
+    '<<확인된맥락>>',
+    '<<제목>>확인된 기록',
+    '<<구분>>사실',
+    '<<근거>>WS-001',
+    '<<내용>>원문에 기록된 내용',
+    '<<권장처리>>',
+    '<<제목>>확인할 조치',
+    '<<구분>>추정',
+    '<<근거>>WS-001',
+    '<<내용>>범위를 먼저 확인한다.',
+    '<<끝>>',
+  ].join('\n');
+  assert.ok(parseDelimitedDisplay(validAnalysis, 'analysis'));
+
+  const malformed = [
+    '<<요약>>a<<요약>>b<<끝>>',
+    '<<요약>>a<<권장처리>><<제목>>x<<구분>>추정<<근거>>WS-1<<내용>>y<<확인된맥락>><<제목>>z<<구분>>사실<<근거>>WS-1<<내용>>q<<끝>>',
+    '<<요약>><<제목>>필드가 잘못 소속됨<<끝>>',
+    '<<요약>>a<<확인된맥락>><<제목>>x<<구분>>사실<<근거>>WS-1<<권장처리>><<제목>>r<<구분>>추정<<근거>>WS-1<<내용>>n<<끝>>',
+    '<<요약>>a<<확인된맥락>><<제목>>x<<제목>>중복<<구분>>사실<<근거>>WS-1<<내용>>n<<권장처리>><<제목>>r<<구분>>추정<<근거>>WS-1<<내용>>n<<끝>>',
+    '<<요약>>a<<확인된맥락>><<제목>><<구분>>사실<<근거>>WS-1<<내용>>n<<권장처리>><<제목>>r<<구분>>추정<<근거>>WS-1<<내용>>n<<끝>>',
+    validAnalysis.replace('<<요약>>', '<< 요약 >>'),
+    `${validAnalysis}\n뒤쪽 잡문`,
+  ];
+  for (const output of malformed)
+    assert.equal(parseDelimitedDisplay(output, 'analysis'), null, output);
+  assert.ok(
+    parseDelimitedDisplay(
+      validAnalysis.replace('<<구분>>사실', '<<구분>>사실 (원문 근거)'),
+      'analysis',
+    ),
+  );
+});
+
+void test('test-case cards require every field, three cases, and valid marker order', () => {
+  const testCase = (number: number, overrides = '') =>
+    [
+      '<<테스트케이스>>',
+      `<<번호>>TC-0${number}`,
+      `<<제목>>검증 ${number}`,
+      '<<우선순위>>필수',
+      '<<사전조건>>준비 완료',
+      '<<실행단계>>1단계\n2단계\n3단계',
+      '<<기대결과>>정상 처리',
+      '<<근거>>WS-001',
+      overrides,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  const valid = [
+    '<<전략>>연결된 이력까지 함께 검증한다.',
+    testCase(1),
+    testCase(2),
+    testCase(3),
+    '<<회귀범위>>',
+    '<<제목>>주변 흐름',
+    '<<구분>>추정',
+    '<<근거>>WS-001',
+    '<<내용>>연결 업무도 확인한다.',
+    '<<끝>>',
+  ].join('\n');
+  assert.ok(parseDelimitedDisplay(valid, 'test-cases'));
+
+  const malformed = [
+    ['<<전략>>전략', testCase(1), '<<끝>>'].join('\n'),
+    valid.replace('<<기대결과>>정상 처리\n', ''),
+    valid.replace(
+      '<<번호>>TC-01\n<<제목>>',
+      '<<제목>>검증\n<<번호>>TC-01\n<<제목>>',
+    ),
+  ];
+  for (const output of malformed)
+    assert.equal(parseDelimitedDisplay(output, 'test-cases'), null, output);
+
+  // Card presentation validates the delimiter contract, not the model's
+  // wording. Semantic variants remain visible and are normalized separately.
+  for (const output of [
+    valid.replace('<<우선순위>>필수', '<<우선순위>>긴급 회귀'),
+    valid.replace('1단계\n2단계\n3단계', '한 줄로 1, 2, 3단계를 확인한다.'),
+  ])
+    assert.ok(parseDelimitedDisplay(output, 'test-cases'), output);
+});
+
+void test('brief and memory card schemas reject missing, reversed, or empty fields', () => {
+  const validBrief =
+    '<<요약>>요약<<확인사항>><<제목>>사실<<구분>>사실<<근거>>WS-1<<내용>>내용<<다음행동>>확인한다.<<끝>>';
+  const validMemory =
+    '<<요약>>처리 기억<<핵심어>>주문\n재시도<<분류>><<이름>>영역<<값>>주문\n결제<<끝>>';
+  const facetsOnlyMemory =
+    '<<요약>>처리 기억<<핵심어>><<분류>><<이름>>영역<<값>>주문<<끝>>';
+  assert.ok(parseDelimitedDisplay(validBrief, 'brief'));
+  assert.ok(parseDelimitedDisplay(validMemory, 'memory'));
+  assert.ok(parseDelimitedDisplay(facetsOnlyMemory, 'memory'));
+  for (const [output, kind] of [
+    [
+      '<<요약>>요약<<다음행동>>확인<<확인사항>><<제목>>x<<구분>>사실<<근거>>WS-1<<내용>>n<<끝>>',
+      'brief',
+    ],
+    [
+      '<<요약>>요약<<확인사항>><<제목>>x<<구분>>사실<<근거>><<내용>>n<<끝>>',
+      'brief',
+    ],
+    ['<<요약>>기억<<핵심어>>a<<분류>><<값>>x<<이름>>y<<끝>>', 'memory'],
+  ] as const)
+    assert.equal(parseDelimitedDisplay(output, kind), null, output);
+  assert.ok(
+    parseDelimitedDisplay(
+      '<<요약>>기억<<핵심어>>a<<분류>><<이름>>y<<값>>1\n2\n3\n4\n5<<끝>>',
+      'memory',
+    ),
+  );
+  assert.ok(parseDelimitedDisplay('<<요약>>기억<<핵심어>><<끝>>', 'memory'));
+});
+
+void test('streaming accepts only the unfinished active tail and never loses a literal angle bracket', () => {
+  const prefix =
+    '<<요약>>요약<<확인된맥락>><<제목>>제목<<구분>>사실<<근거>>WS-1<<내용>>진행 중';
+  assert.ok(parseDelimitedDisplayProgress(prefix, 'analysis'));
+  assert.equal(
+    parseDelimitedDisplayProgress(`${prefix}<`, 'analysis')
+      ?.blocks.at(-1)
+      ?.fields.at(-1)?.value,
+    '진행 중<',
+  );
+  assert.equal(
+    parseDelimitedDisplayProgress(`${prefix}< 비교`, 'analysis')
+      ?.blocks.at(-1)
+      ?.fields.at(-1)?.value,
+    '진행 중< 비교',
+  );
+  assert.equal(
+    parseDelimitedDisplayProgress(
+      '<<요약>>요약<<확인된맥락>><<제목>>제목<<구분>>사실<<근거>>WS-1<<권장처리>><<제목>>조치',
+      'analysis',
+    ),
+    null,
+  );
+  assert.equal(
+    parseDelimitedDisplayProgress(
+      '<<요약>>요약<<확인된맥락>>잘못된 직접 본문',
+      'analysis',
+    ),
+    null,
+  );
+});
+
+void test('every grapheme prefix of valid outputs remains card-renderable after the first marker', () => {
+  const analysis = [
+    '<<요약>>요약',
+    '<<확인된맥락>><<제목>>기록<<구분>>사실<<근거>>WS-1<<내용>>내용',
+    '<<권장처리>><<제목>>조치<<구분>>추정<<근거>>WS-1<<내용>>처리',
+    '<<끝>>',
+  ].join('\n');
+  const testCase = (id: number) =>
+    `<<테스트케이스>><<번호>>TC-0${id}<<제목>>검증<<우선순위>>필수<<사전조건>>준비<<실행단계>>1\n2\n3<<기대결과>>완료<<근거>>WS-1`;
+  const outputs = [
+    [analysis, 'analysis'],
+    [
+      `<<전략>>전략\n${testCase(1)}\n${testCase(2)}\n${testCase(3)}\n<<끝>>`,
+      'test-cases',
+    ],
+    [
+      '<<요약>>요약<<확인사항>><<제목>>확인<<구분>>사실<<근거>>WS-1<<내용>>내용<<끝>>',
+      'brief',
+    ],
+    ['<<요약>>기억<<핵심어>>검색<<끝>>', 'memory'],
+  ] as const;
+
+  for (const [output, kind] of outputs) {
+    const graphemes = Array.from(output);
+    const firstMarkerEnd = graphemes.indexOf('>') + 2;
+    for (let length = firstMarkerEnd; length <= graphemes.length; length += 1) {
+      const prefix = graphemes.slice(0, length).join('');
+      assert.ok(
+        parseDelimitedDisplayProgress(prefix, kind),
+        `${kind} failed at ${JSON.stringify(prefix.slice(-24))}`,
+      );
+    }
+  }
+});
+
+void test('browser stream reconciles a divergent final result and keeps graphemes intact', async () => {
+  const divergent = [
+    `event: delta\ndata: ${JSON.stringify({ text: '초안' })}\n\n`,
+    `event: result\ndata: ${JSON.stringify({ content: '최종 원문' })}\n\n`,
+  ].join('');
+  let visible = '';
+  await streamApi<{ content: string }>(
+    '/divergent',
+    {},
+    {
+      onDelta: (text) => {
+        visible += text;
+      },
+      onReplace: (text) => {
+        visible = text;
+      },
+    },
+    {
+      fetcher: async () => streamingResponse([divergent]),
+      nextFrame: async () => undefined,
+    },
+  );
+  assert.equal(visible, '최종 원문');
+
+  const graphemes: string[] = [];
+  const content = '가👨‍👩‍👧‍👦é';
+  await streamApi<{ content: string }>(
+    '/graphemes',
+    {},
+    { onDelta: (text) => graphemes.push(text) },
+    {
+      fetcher: async () =>
+        streamingResponse([
+          `event: result\ndata: ${JSON.stringify({ content })}\n\n`,
+        ]),
+      nextFrame: async () => undefined,
+    },
+  );
+  assert.deepEqual(graphemes, ['가', '👨‍👩‍👧‍👦', 'é']);
+});
+
+void test('large coalesced output catches up in a bounded number of paints', async () => {
+  const content = '가'.repeat(5500);
+  const transport = `event: result\ndata: ${JSON.stringify({ content })}\n\n`;
+  const chunks: string[] = [];
+  await streamApi<{ content: string }>(
+    '/large-result',
+    {},
+    { onDelta: (text) => chunks.push(text) },
+    {
+      fetcher: async () => streamingResponse([transport]),
+      nextFrame: async () => undefined,
+    },
+  );
+  assert.equal(chunks.join(''), content);
+  assert.ok(chunks.length <= 100, `painted ${chunks.length} times`);
+});
+
+void test('aborting while the paint queue drains cannot resolve a stale result', async () => {
+  const controller = new AbortController();
+  let enterFrame = () => {};
+  let releaseFrame = () => {};
+  const entered = new Promise<void>((resolve) => {
+    enterFrame = resolve;
+  });
+  const frame = new Promise<void>((resolve) => {
+    releaseFrame = resolve;
+  });
+  const content = '받은 평문을 화면에 재생하는 중';
+  const transport = [
+    `event: delta\ndata: ${JSON.stringify({ text: content })}\n\n`,
+    `event: result\ndata: ${JSON.stringify({ content })}\n\n`,
+  ].join('');
+  const request = streamApi<{ content: string }>(
+    '/cancel-drain',
+    {},
+    { onDelta: () => undefined, onReplace: () => undefined },
+    {
+      fetcher: async () => streamingResponse([transport]),
+      nextFrame: async () => {
+        enterFrame();
+        await frame;
+      },
+      signal: controller.signal,
+    },
+  );
+  await entered;
+  controller.abort();
+  releaseFrame();
+  await assert.rejects(request, (error: unknown) => {
+    assert.equal((error as Error).name, 'AbortError');
+    return true;
+  });
+});
+
+void test('transport failure preserves received plain text and stops pending paints', async () => {
+  const encoder = new TextEncoder();
+  const content = '수신됐지만 아직 그리지 않은 평문';
+  let sent = false;
+  const response = new Response(
+    new ReadableStream({
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(
+            encoder.encode(
+              `event: delta\ndata: ${JSON.stringify({ text: content })}\n\n`,
+            ),
+          );
+          return;
+        }
+        controller.error(new Error('connection lost'));
+      },
+    }),
+  );
+  let releaseFrame = () => {};
+  const frame = new Promise<void>((resolve) => {
+    releaseFrame = resolve;
+  });
+  let visible = '';
+  await assert.rejects(
+    streamApi<{ content: string }>(
+      '/transport-error',
+      {},
+      {
+        onDelta: (text) => {
+          visible += text;
+        },
+        onReplace: (text) => {
+          visible = text;
+        },
+      },
+      {
+        fetcher: async () => response,
+        nextFrame: async () => frame,
+      },
+    ),
+    /받은 평문은 보존했습니다/,
+  );
+  assert.equal(visible, content);
+  releaseFrame();
+  await Promise.resolve();
+  assert.equal(visible, content);
+});
+
+void test('a tail reset after the complete result still resolves successfully', async () => {
+  const encoder = new TextEncoder();
+  const content = '완료 원문';
+  let sent = false;
+  const response = new Response(
+    new ReadableStream({
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(
+            encoder.encode(
+              [
+                `event: delta\ndata: ${JSON.stringify({ text: content })}\n\n`,
+                `event: result\ndata: ${JSON.stringify({ content })}\n\n`,
+              ].join(''),
+            ),
+          );
+          return;
+        }
+        controller.error(new Error('tail reset'));
+      },
+    }),
+  );
+  let visible = '';
+  const result = await streamApi<{ content: string }>(
+    '/tail-reset',
+    {},
+    {
+      onDelta: (text) => {
+        visible += text;
+      },
+      onReplace: (text) => {
+        visible = text;
+      },
+    },
+    { fetcher: async () => response, nextFrame: async () => undefined },
+  );
+  assert.equal(result.content, content);
+  assert.equal(visible, content);
+});
+
+void test(
+  'browser stream finishes through its timer when animation frames are paused',
+  { timeout: 1000 },
+  async () => {
+    const documentDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'document',
+    );
+    const animationDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'requestAnimationFrame',
+    );
+    const cancelDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'cancelAnimationFrame',
+    );
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: { visibilityState: 'visible' },
+    });
+    Object.defineProperty(globalThis, 'requestAnimationFrame', {
+      configurable: true,
+      value: () => 1,
+    });
+    Object.defineProperty(globalThis, 'cancelAnimationFrame', {
+      configurable: true,
+      value: () => undefined,
+    });
+    try {
+      let visible = '';
+      await streamApi<{ content: string }>(
+        '/paused-frame',
+        {},
+        { onDelta: (text) => (visible += text) },
+        {
+          fetcher: async () =>
+            streamingResponse([
+              `event: result\ndata: ${JSON.stringify({ content: '완료' })}\n\n`,
+            ]),
+        },
+      );
+      assert.equal(visible, '완료');
+    } finally {
+      for (const [name, descriptor] of [
+        ['document', documentDescriptor],
+        ['requestAnimationFrame', animationDescriptor],
+        ['cancelAnimationFrame', cancelDescriptor],
+      ] as const) {
+        if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+        else delete (globalThis as Record<string, unknown>)[name];
+      }
+    }
+  },
+);
+
+void test('provider ignores a full message after delta streaming instead of duplicating it', async () => {
+  const response = streamingResponse([
+    `data: ${JSON.stringify({ choices: [{ delta: { content: '정상' } }] })}\n`,
+    `data: ${JSON.stringify({ choices: [{ message: { content: '정상' }, finish_reason: 'stop' }] })}\n`,
+    'data: [DONE]\n',
+  ]);
+  const result = await readOpenRouterTextStream(response);
+  assert.equal(result.text, '정상');
+});
+
+void test('provider message fallback is one-shot and a NUL-only delta cannot lock its mode', async () => {
+  const response = streamingResponse([
+    `data: ${JSON.stringify({ choices: [{ delta: { content: '\u0000' } }] })}\n`,
+    `data: ${JSON.stringify({ choices: [{ message: { content: '전체 결과' } }] })}\n`,
+    `data: ${JSON.stringify({ choices: [{ message: { content: '전체 결과 반복' } }] })}\n`,
+    'data: [DONE]\n',
+  ]);
+  const result = await readOpenRouterTextStream(response);
+  assert.equal(result.text, '전체 결과');
+  assert.equal(result.completed, true);
+});
+
+void test('malformed provider transport marks a preserved answer as partial', async () => {
+  const response = streamingResponse([
+    `data: ${JSON.stringify({ choices: [{ delta: { content: '보존할 평문' } }] })}\n`,
+    'data: not-json\n',
+    'data: [DONE]\n',
+  ]);
+  const result = await readOpenRouterTextStream(response);
+  assert.equal(result.text, '보존할 평문');
+  assert.equal(result.providerError, true);
 });
 
 void test('delimiter parsing never invents a valid citation for uncited text', () => {

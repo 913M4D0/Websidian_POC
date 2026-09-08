@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -604,6 +605,7 @@ function InsightDialog({
   elapsedMs,
   onMode,
   onRetry,
+  onCancel,
   onClose,
   onEvidence,
 }: {
@@ -617,15 +619,31 @@ function InsightDialog({
   elapsedMs: number;
   onMode: (mode: 'analysis' | 'test-cases') => void;
   onRetry: () => void;
+  onCancel: () => void;
   onClose: () => void;
   onEvidence: (id: string) => void;
 }) {
   const current = mode === 'analysis' ? analysis : testPlan;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+
+  useLayoutEffect(() => {
+    if (busy === mode && !draft) followRef.current = true;
+    const viewport = scrollRef.current;
+    if (viewport && followRef.current)
+      viewport.scrollTop = viewport.scrollHeight;
+  }, [busy, current, draft, mode]);
+
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) (busy ? onCancel : onClose)();
+      }}
+    >
       <DialogContent
-        className="insight-dialog max-h-[90dvh] overflow-y-auto sm:max-w-[760px]"
-        showCloseButton={!busy}
+        className="insight-dialog sm:max-w-[760px]"
+        showCloseButton
       >
         <DialogHeader>
           <DialogTitle>
@@ -638,101 +656,127 @@ function InsightDialog({
         <div className="insight-tabs" aria-label="AI 결과 전환">
           <button
             aria-pressed={mode === 'analysis'}
+            disabled={Boolean(busy)}
             onClick={() => onMode('analysis')}
           >
             <BrainCircuit /> 분석 결과
           </button>
           <button
             aria-pressed={mode === 'test-cases'}
+            disabled={Boolean(busy)}
             onClick={() => onMode('test-cases')}
           >
             <FlaskConical /> 테스트 케이스
           </button>
         </div>
-        {busy === mode && (
-          <output className="insight-loading" aria-live="polite">
-            <LoaderCircle className="animate-spin" />
-            <strong>
-              {draft
-                ? 'AI 평문을 실시간으로 구성하는 중…'
-                : mode === 'analysis'
-                  ? '관련 이력을 분석하는 중…'
-                  : '검증 시나리오를 만드는 중…'}
-            </strong>
-            <span>
-              {draft
-                ? '구획을 감지해 카드를 채우는 중'
-                : '첫 구획을 기다리는 중'}
-              {' · '}
-              {elapsedSeconds(elapsedMs)}초 경과
-            </span>
-            {draft && (
-              <DelimitedOutputView content={draft} kind={mode} streaming />
-            )}
-          </output>
-        )}
-        {!busy && failure && (
-          <div className="insight-empty" role="alert">
-            <strong>AI 결과를 만들지 못했습니다.</strong>
-            <p>{failure}</p>
-            {draft && <pre className="llm-plain-output">{draft}</pre>}
-            <Button size="sm" variant="outline" onClick={onRetry}>
-              다시 시도
-            </Button>
-          </div>
-        )}
-        {!busy && !failure && !current && (
-          <div className="insight-empty">
-            아직 생성하지 않은 결과입니다. 그래프 위의 버튼으로 생성해 주세요.
-          </div>
-        )}
-        {mode === 'analysis' && analysis && busy !== mode && (
-          <div className="insight-result">
-            {analysis.warning && (
-              <p className="insight-stream-warning">{analysis.warning}</p>
-            )}
-            <DelimitedOutputView content={analysis.content} kind="analysis" />
-            <div className="insight-citations">
-              {analysis.evidenceIds.map((id) => (
-                <button key={id} onClick={() => onEvidence(id)}>
-                  {shortId(id)} 제공된 원문
-                </button>
-              ))}
+        <div
+          ref={scrollRef}
+          className="insight-content-scroll"
+          onScroll={(event) => {
+            const viewport = event.currentTarget;
+            followRef.current =
+              viewport.scrollHeight -
+                viewport.scrollTop -
+                viewport.clientHeight <=
+              48;
+          }}
+        >
+          {busy === mode && (
+            <div className={`insight-loading ${draft ? 'has-output' : ''}`}>
+              <output className="insight-stream-status">
+                <LoaderCircle className="animate-spin" />
+                <span className="insight-stream-copy">
+                  <strong>
+                    {draft
+                      ? 'AI 평문을 실시간으로 구성하는 중…'
+                      : mode === 'analysis'
+                        ? '관련 이력을 분석하는 중…'
+                        : '검증 시나리오를 만드는 중…'}
+                  </strong>
+                  <small>
+                    {draft
+                      ? '구획을 감지해 카드를 채우는 중'
+                      : '첫 구획을 기다리는 중'}
+                    <span aria-hidden="true">
+                      {' · '}
+                      {elapsedSeconds(elapsedMs)}초 경과
+                    </span>
+                  </small>
+                </span>
+              </output>
+              {draft && (
+                <DelimitedOutputView content={draft} kind={mode} streaming />
+              )}
             </div>
-            {analysis.warning && (
+          )}
+          {!busy && failure && (
+            <div className="insight-empty">
+              <div role="alert">
+                <strong>AI 결과를 만들지 못했습니다.</strong>
+                <p>{failure}</p>
+              </div>
+              {draft && <pre className="llm-plain-output">{draft}</pre>}
               <Button size="sm" variant="outline" onClick={onRetry}>
-                실시간 AI 다시 시도
+                다시 시도
               </Button>
-            )}
-          </div>
-        )}
-        {mode === 'test-cases' && testPlan && busy !== mode && (
-          <div className="insight-result">
-            {testPlan.warning && (
-              <p className="insight-stream-warning">{testPlan.warning}</p>
-            )}
-            <DelimitedOutputView content={testPlan.content} kind="test-cases" />
-            <div className="insight-citations">
-              {testPlan.evidenceIds.map((id) => (
-                <button key={id} onClick={() => onEvidence(id)}>
-                  {shortId(id)} 제공된 원문
-                </button>
-              ))}
             </div>
-            {testPlan.warning && (
-              <Button size="sm" variant="outline" onClick={onRetry}>
-                실시간 AI 다시 시도
-              </Button>
-            )}
-          </div>
-        )}
-        <p className="insight-disclosure">
-          {current?.engine === 'source-fallback'
-            ? '실시간 AI 대신 서버가 자동 수집한 원문을 정리한 안전 결과입니다.'
-            : 'GPT 5.6 Luna가 서버에서 자동 수집한 이력만 사용합니다.'}{' '}
-          결과는 원본 이슈를 바꾸지 않으며, 실제 조치 전 연결된 기록을 확인해야
-          합니다.
-        </p>
+          )}
+          {!busy && !failure && !current && (
+            <div className="insight-empty">
+              아직 생성하지 않은 결과입니다. 그래프 위의 버튼으로 생성해 주세요.
+            </div>
+          )}
+          {mode === 'analysis' && analysis && busy !== mode && (
+            <div className="insight-result">
+              {analysis.warning && (
+                <p className="insight-stream-warning">{analysis.warning}</p>
+              )}
+              <DelimitedOutputView content={analysis.content} kind="analysis" />
+              <div className="insight-citations">
+                {analysis.evidenceIds.map((id) => (
+                  <button key={id} onClick={() => onEvidence(id)}>
+                    {shortId(id)} 제공된 원문
+                  </button>
+                ))}
+              </div>
+              {analysis.warning && (
+                <Button size="sm" variant="outline" onClick={onRetry}>
+                  실시간 AI 다시 시도
+                </Button>
+              )}
+            </div>
+          )}
+          {mode === 'test-cases' && testPlan && busy !== mode && (
+            <div className="insight-result">
+              {testPlan.warning && (
+                <p className="insight-stream-warning">{testPlan.warning}</p>
+              )}
+              <DelimitedOutputView
+                content={testPlan.content}
+                kind="test-cases"
+              />
+              <div className="insight-citations">
+                {testPlan.evidenceIds.map((id) => (
+                  <button key={id} onClick={() => onEvidence(id)}>
+                    {shortId(id)} 제공된 원문
+                  </button>
+                ))}
+              </div>
+              {testPlan.warning && (
+                <Button size="sm" variant="outline" onClick={onRetry}>
+                  실시간 AI 다시 시도
+                </Button>
+              )}
+            </div>
+          )}
+          <p className="insight-disclosure">
+            {current?.engine === 'source-fallback'
+              ? '실시간 AI 대신 서버가 자동 수집한 원문을 정리한 안전 결과입니다.'
+              : 'GPT 5.6 Luna가 서버에서 자동 수집한 이력만 사용합니다.'}{' '}
+            결과는 원본 이슈를 바꾸지 않으며, 실제 조치 전 연결된 기록을
+            확인해야 합니다.
+          </p>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -801,6 +845,34 @@ export function MemoryUniverse() {
   const searchSequence = useRef(0);
   const briefSequence = useRef(0);
   const contextSequence = useRef(0);
+  const briefScrollRef = useRef<HTMLElement>(null);
+  const briefFollowRef = useRef(true);
+  const briefAbortRef = useRef<AbortController | null>(null);
+  const insightAbortRef = useRef<AbortController | null>(null);
+
+  const invalidateBrief = useCallback(() => {
+    briefSequence.current += 1;
+    briefAbortRef.current?.abort();
+    briefAbortRef.current = null;
+    setBriefBusy(false);
+    setBrief(null);
+    setBriefDraft('');
+    setBriefFailure('');
+  }, []);
+
+  useLayoutEffect(() => {
+    const viewport = briefScrollRef.current;
+    if (viewport && briefFollowRef.current)
+      viewport.scrollTop = viewport.scrollHeight;
+  }, [brief, briefBusy, briefDraft]);
+
+  useEffect(
+    () => () => {
+      briefAbortRef.current?.abort();
+      insightAbortRef.current?.abort();
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -817,9 +889,8 @@ export function MemoryUniverse() {
       setGravityRootId(null);
       setContextRootId(null);
       setHistory(null);
-      setBrief(null);
+      invalidateBrief();
       setPinnedIds([]);
-      briefSequence.current++;
       setResults(null);
       setSearching(false);
       setAnalysis(null);
@@ -830,7 +901,7 @@ export function MemoryUniverse() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [invalidateBrief]);
 
   useEffect(() => {
     if (!birthIssueId) return;
@@ -949,6 +1020,7 @@ export function MemoryUniverse() {
     if (window.innerWidth <= 680) setSidebarOpen(false);
   }
   function beginContext(issue: Issue) {
+    invalidateBrief();
     contextSequence.current++;
     setContextRootId(issue.id);
     setSelectedId(issue.id);
@@ -967,6 +1039,7 @@ export function MemoryUniverse() {
   }
   const select = (node: MemoryNode | null) => {
     if (!node) {
+      invalidateBrief();
       setSelectedId(null);
       setGravityRootId(null);
       setContextRootId(null);
@@ -980,6 +1053,7 @@ export function MemoryUniverse() {
   };
   const selectIssue = (issue: Issue) => beginContext(issue);
   function resetView() {
+    invalidateBrief();
     contextSequence.current++;
     setSelectedId(null);
     setGravityRootId(null);
@@ -992,8 +1066,7 @@ export function MemoryUniverse() {
     if (!text.trim()) return;
     const sequence = ++searchSequence.current;
     setSearching(true);
-    setBrief(null);
-    briefSequence.current++;
+    invalidateBrief();
     setError('');
     setTab('search');
     setSidebarOpen(true);
@@ -1047,10 +1120,9 @@ export function MemoryUniverse() {
     setSubmittedQuery('');
     setQuery('');
     setHistory(null);
-    setBrief(null);
+    invalidateBrief();
     setPinnedIds([]);
     setProgressText('');
-    briefSequence.current++;
     setNotice(
       issue.status === 'closed'
         ? '처리 완료. 정식 기억 노드가 생성됐고 AI 검색 보강을 진행합니다.'
@@ -1060,8 +1132,7 @@ export function MemoryUniverse() {
   }
   function togglePin(id: string) {
     if (byId.get(id)?.status !== 'closed' || id === referenceId) return;
-    setBrief(null);
-    briefSequence.current++;
+    invalidateBrief();
     setPinnedIds((current) =>
       current.includes(id)
         ? current.filter((item) => item !== id)
@@ -1100,11 +1171,10 @@ export function MemoryUniverse() {
         setTestPlan(null);
         void loadContext(data.issue);
       }
-      setBrief(null);
+      invalidateBrief();
       setResults(null);
       searchSequence.current++;
       setSearching(false);
-      briefSequence.current++;
       setProgressText('');
       setNotice('진행 기록을 저장했습니다. 원문은 변경하지 않았습니다.');
     } catch (cause) {
@@ -1177,7 +1247,10 @@ export function MemoryUniverse() {
     setNotice(message);
   }
   async function generateBrief() {
-    if (!history || !submittedQuery || briefBusy) return;
+    if (!history || !submittedQuery || briefBusy || briefAbortRef.current)
+      return;
+    const controller = new AbortController();
+    briefAbortRef.current = controller;
     const sequence = ++briefSequence.current;
     const startedAt = performance.now();
     const elapsedTimer = window.setInterval(() => {
@@ -1185,6 +1258,8 @@ export function MemoryUniverse() {
         setBriefElapsedMs(performance.now() - startedAt);
     }, 250);
     setBriefBusy(true);
+    briefFollowRef.current = true;
+    setBrief(null);
     setBriefDraft('');
     setBriefElapsedMs(0);
     setBriefFailure('');
@@ -1198,27 +1273,49 @@ export function MemoryUniverse() {
           pinnedIds,
         },
         {
-          onDelta: (text) => setBriefDraft((current) => `${current}${text}`),
+          onDelta: (text) => {
+            if (briefAbortRef.current === controller)
+              setBriefDraft((current) => `${current}${text}`);
+          },
+          onReplace: (text) => {
+            if (briefAbortRef.current === controller) setBriefDraft(text);
+          },
           onHeartbeat: (elapsed) =>
+            briefAbortRef.current === controller &&
             setBriefElapsedMs((current) => Math.max(current, elapsed)),
         },
+        { signal: controller.signal },
       );
-      if (sequence === briefSequence.current) setBrief(data);
+      if (
+        !controller.signal.aborted &&
+        briefAbortRef.current === controller &&
+        sequence === briefSequence.current
+      )
+        setBrief(data);
     } catch (cause) {
-      if (sequence === briefSequence.current)
+      if (
+        !controller.signal.aborted &&
+        briefAbortRef.current === controller &&
+        sequence === briefSequence.current
+      )
         setBriefFailure((cause as Error).message);
     } finally {
       window.clearInterval(elapsedTimer);
-      setBriefBusy(false);
+      if (briefAbortRef.current === controller) {
+        briefAbortRef.current = null;
+        setBriefBusy(false);
+      }
     }
   }
   async function generateInsight(kind: 'analysis' | 'test-cases') {
-    if (!contextRoot || insightBusy) return;
+    if (!contextRoot || insightBusy || insightAbortRef.current) return;
+    const controller = new AbortController();
+    insightAbortRef.current = controller;
     const startedAt = performance.now();
-    const elapsedTimer = window.setInterval(
-      () => setInsightElapsedMs(performance.now() - startedAt),
-      250,
-    );
+    const elapsedTimer = window.setInterval(() => {
+      if (insightAbortRef.current === controller)
+        setInsightElapsedMs(performance.now() - startedAt);
+    }, 250);
     setInsightMode(kind);
     setInsightBusy(kind);
     setInsightFailure(null);
@@ -1232,31 +1329,63 @@ export function MemoryUniverse() {
           {},
           {
             onDelta: (text) =>
+              insightAbortRef.current === controller &&
               setInsightDraft((current) => `${current}${text}`),
+            onReplace: (text) => {
+              if (insightAbortRef.current === controller) setInsightDraft(text);
+            },
             onHeartbeat: (elapsed) =>
+              insightAbortRef.current === controller &&
               setInsightElapsedMs((current) => Math.max(current, elapsed)),
           },
+          { signal: controller.signal },
         );
-        setAnalysis(response);
+        if (
+          !controller.signal.aborted &&
+          insightAbortRef.current === controller
+        )
+          setAnalysis(response);
       } else {
         const response = await streamApi<IssueTestPlanResponse>(
           `/api/issues/${encodeURIComponent(contextRoot.id)}/test-cases`,
           {},
           {
             onDelta: (text) =>
+              insightAbortRef.current === controller &&
               setInsightDraft((current) => `${current}${text}`),
+            onReplace: (text) => {
+              if (insightAbortRef.current === controller) setInsightDraft(text);
+            },
             onHeartbeat: (elapsed) =>
+              insightAbortRef.current === controller &&
               setInsightElapsedMs((current) => Math.max(current, elapsed)),
           },
+          { signal: controller.signal },
         );
-        setTestPlan(response);
+        if (
+          !controller.signal.aborted &&
+          insightAbortRef.current === controller
+        )
+          setTestPlan(response);
       }
     } catch (cause) {
-      setInsightFailure({ mode: kind, message: (cause as Error).message });
+      if (!controller.signal.aborted)
+        setInsightFailure({ mode: kind, message: (cause as Error).message });
     } finally {
       window.clearInterval(elapsedTimer);
-      setInsightBusy(null);
+      if (insightAbortRef.current === controller) {
+        insightAbortRef.current = null;
+        setInsightBusy(null);
+      }
     }
+  }
+
+  function cancelInsight() {
+    insightAbortRef.current?.abort();
+    insightAbortRef.current = null;
+    setInsightBusy(null);
+    setInsightMode(null);
+    setInsightFailure(null);
   }
   function commitNeighbors() {
     if (neighborDraft === neighbors) return;
@@ -1355,9 +1484,8 @@ export function MemoryUniverse() {
                           setQuery(event.target.value);
                           setReferenceId(undefined);
                           searchSequence.current++;
-                          briefSequence.current++;
+                          invalidateBrief();
                           setSearching(false);
-                          setBrief(null);
                           setResults(null);
                           setSubmittedQuery('');
                         } else {
@@ -1407,8 +1535,7 @@ export function MemoryUniverse() {
                         setSubmittedQuery('');
                         setReferenceId(undefined);
                         setTab('issues');
-                        setBrief(null);
-                        briefSequence.current++;
+                        invalidateBrief();
                       }}
                     >
                       탐색 초기화
@@ -1519,7 +1646,18 @@ export function MemoryUniverse() {
                 </nav>
               </>
             ) : (
-              <section className="brief-workspace">
+              <section
+                ref={briefScrollRef}
+                className="brief-workspace"
+                onScroll={(event) => {
+                  const viewport = event.currentTarget;
+                  briefFollowRef.current =
+                    viewport.scrollHeight -
+                      viewport.scrollTop -
+                      viewport.clientHeight <=
+                    48;
+                }}
+              >
                 <span className="section-kicker">HISTORY / EVIDENCE</span>
                 <h2>
                   이번 이슈를 위한
@@ -1684,8 +1822,8 @@ export function MemoryUniverse() {
                     : 'AI History Brief 생성'}
                 </Button>
                 {briefFailure && (
-                  <div className="brief-inline-error" role="alert">
-                    <span>{briefFailure}</span>
+                  <div className="brief-inline-error">
+                    <span role="alert">{briefFailure}</span>
                     {briefDraft && (
                       <pre className="llm-plain-output">{briefDraft}</pre>
                     )}
@@ -1704,13 +1842,17 @@ export function MemoryUniverse() {
                   있습니다.
                 </small>
                 {briefBusy && (
-                  <div className="brief-stream-live" aria-live="polite">
+                  <div className="brief-stream-live">
                     <small>
-                      {briefDraft
-                        ? '구획을 감지해 카드를 채우는 중'
-                        : '첫 구획을 기다리는 중'}
-                      {' · '}
-                      {elapsedSeconds(briefElapsedMs)}초 경과
+                      <span aria-live="polite">
+                        {briefDraft
+                          ? '구획을 감지해 카드를 채우는 중'
+                          : '첫 구획을 기다리는 중'}
+                      </span>
+                      <span aria-hidden="true">
+                        {' · '}
+                        {elapsedSeconds(briefElapsedMs)}초 경과
+                      </span>
                     </small>
                     {briefDraft && (
                       <DelimitedOutputView
@@ -2367,6 +2509,7 @@ export function MemoryUniverse() {
             setInsightFailure(null);
           }}
           onRetry={() => void generateInsight(insightMode)}
+          onCancel={cancelInsight}
           onClose={() => {
             setInsightMode(null);
             setInsightFailure(null);

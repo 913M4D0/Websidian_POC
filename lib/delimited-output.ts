@@ -33,53 +33,147 @@ export type DelimitedDisplay = {
   complete: boolean;
 };
 
+type DisplayFieldRule = {
+  label: string;
+  allowEmpty?: boolean;
+};
+
+type DisplaySectionRule = {
+  label: string;
+  min: number;
+  max: number;
+  mode: 'scalar' | 'object';
+  allowEmpty?: boolean;
+  fields?: readonly DisplayFieldRule[];
+};
+
+const displayClaimFields = [
+  { label: '제목' },
+  { label: '구분' },
+  { label: '근거' },
+  { label: '내용' },
+] as const satisfies readonly DisplayFieldRule[];
+
 const displaySchemas: Record<
   DelimitedDisplayKind,
-  { topLevel: readonly string[]; fields: readonly string[] }
+  readonly DisplaySectionRule[]
 > = {
-  analysis: {
-    topLevel: ['요약', '확인된맥락', '주의할위험', '권장처리', '추가확인'],
-    fields: ['제목', '구분', '근거', '내용'],
-  },
-  'test-cases': {
-    topLevel: ['전략', '테스트케이스', '회귀범위'],
-    fields: [
-      '번호',
-      '제목',
-      '우선순위',
-      '사전조건',
-      '실행단계',
-      '기대결과',
-      '근거',
-      '구분',
-      '내용',
-    ],
-  },
-  brief: {
-    topLevel: ['요약', '확인사항', '주의사항', '다음행동'],
-    fields: ['제목', '구분', '근거', '내용'],
-  },
-  memory: {
-    topLevel: ['요약', '핵심어', '분류'],
-    fields: ['이름', '값'],
-  },
+  analysis: [
+    { label: '요약', min: 1, max: 1, mode: 'scalar' },
+    {
+      label: '확인된맥락',
+      min: 1,
+      max: 3,
+      mode: 'object',
+      fields: displayClaimFields,
+    },
+    {
+      label: '주의할위험',
+      min: 0,
+      max: 2,
+      mode: 'object',
+      fields: displayClaimFields,
+    },
+    {
+      label: '권장처리',
+      min: 1,
+      max: 3,
+      mode: 'object',
+      fields: displayClaimFields,
+    },
+    { label: '추가확인', min: 0, max: 2, mode: 'scalar' },
+  ],
+  'test-cases': [
+    { label: '전략', min: 1, max: 1, mode: 'scalar' },
+    {
+      label: '테스트케이스',
+      min: 3,
+      max: 3,
+      mode: 'object',
+      fields: [
+        { label: '번호' },
+        { label: '제목' },
+        { label: '우선순위' },
+        { label: '사전조건', allowEmpty: true },
+        { label: '실행단계' },
+        { label: '기대결과' },
+        { label: '근거' },
+      ],
+    },
+    {
+      label: '회귀범위',
+      min: 0,
+      max: 2,
+      mode: 'object',
+      fields: displayClaimFields,
+    },
+  ],
+  brief: [
+    { label: '요약', min: 1, max: 1, mode: 'scalar' },
+    {
+      label: '확인사항',
+      min: 1,
+      max: 3,
+      mode: 'object',
+      fields: displayClaimFields,
+    },
+    {
+      label: '주의사항',
+      min: 0,
+      max: 2,
+      mode: 'object',
+      fields: displayClaimFields,
+    },
+    { label: '다음행동', min: 0, max: 3, mode: 'scalar' },
+  ],
+  memory: [
+    { label: '요약', min: 1, max: 1, mode: 'scalar' },
+    {
+      label: '핵심어',
+      min: 1,
+      max: 1,
+      mode: 'scalar',
+      allowEmpty: true,
+    },
+    {
+      label: '분류',
+      min: 0,
+      max: 4,
+      mode: 'object',
+      fields: [{ label: '이름' }, { label: '값' }],
+    },
+  ],
 };
+
+function validValue(
+  value: string,
+  rule: DisplayFieldRule | DisplaySectionRule,
+  partial: boolean,
+) {
+  const trimmed = value.trim();
+  if (!partial && !trimmed && !rule.allowEmpty) return false;
+  return true;
+}
 
 /**
  * Strict presentation parser. Complete output must end with <<끝>>; unknown,
  * unbalanced, or out-of-order markers deliberately return null so the UI can
  * show the provider's untouched text instead of hiding a malformed response.
  */
-function parseDisplay(
+function parseDisplayAttempt(
   output: string,
   kind: DelimitedDisplayKind,
   allowIncomplete: boolean,
 ): DelimitedDisplay | null {
   const normalized = output.replace(/\r\n?/g, '\n');
   const schema = displaySchemas[kind];
-  const topLevel = new Set(schema.topLevel);
-  const fieldNames = new Set(schema.fields);
-  const allowed = new Set([...schema.topLevel, ...schema.fields, '끝']);
+  const ruleIndexByLabel = new Map(
+    schema.map((rule, index) => [rule.label, index]),
+  );
+  const allowedFields = new Set(
+    schema.flatMap((rule) => rule.fields?.map((field) => field.label) ?? []),
+  );
+  const allowed = new Set([...ruleIndexByLabel.keys(), ...allowedFields, '끝']);
   let parseable = normalized;
   if (allowIncomplete) {
     const lastOpen = parseable.lastIndexOf('<<');
@@ -89,8 +183,6 @@ function parseDisplay(
       if (unfinishedMarker.length > 44 || unfinishedMarker.includes('\n'))
         return null;
       parseable = parseable.slice(0, lastOpen);
-    } else if (parseable.endsWith('<')) {
-      parseable = parseable.slice(0, -1);
     }
   }
 
@@ -103,13 +195,15 @@ function parseDisplay(
     return null;
 
   const tokens = matches.map((match, index) => ({
+    rawLabel: match[1],
     label: match[1].trim(),
     value: parseable
       .slice(match.index! + match[0].length, matches[index + 1]?.index)
       .trim(),
   }));
+  if (tokens.some((token) => token.rawLabel !== token.label)) return null;
   if (tokens.some((token) => !allowed.has(token.label))) return null;
-  if (tokens[0].label !== schema.topLevel[0]) return null;
+  if (tokens[0].label !== schema[0].label) return null;
 
   const endIndex = tokens.findIndex((token) => token.label === '끝');
   const complete = endIndex === tokens.length - 1;
@@ -122,29 +216,82 @@ function parseDisplay(
 
   const contentTokens = complete ? tokens.slice(0, -1) : tokens;
   const blocks: DelimitedDisplayBlock[] = [];
-  for (const token of contentTokens) {
-    if (topLevel.has(token.label)) {
+  const counts = schema.map(() => 0);
+  let activeRuleIndex = -1;
+  let activeFieldCount = 0;
+
+  const activeComplete = () => {
+    if (activeRuleIndex < 0) return false;
+    const rule = schema[activeRuleIndex];
+    const block = blocks[blocks.length - 1];
+    if (rule.mode === 'scalar') return validValue(block.body, rule, false);
+    return !block.body && activeFieldCount === (rule.fields?.length ?? 0);
+  };
+
+  for (const [tokenIndex, token] of contentTokens.entries()) {
+    const isActiveTail =
+      allowIncomplete && !complete && tokenIndex === contentTokens.length - 1;
+    const nextRuleIndex = ruleIndexByLabel.get(token.label);
+    if (nextRuleIndex !== undefined) {
+      if (activeRuleIndex >= 0 && !activeComplete()) return null;
+      if (nextRuleIndex < activeRuleIndex) return null;
+      if (counts[nextRuleIndex] >= schema[nextRuleIndex].max) return null;
+      for (let index = 0; index < nextRuleIndex; index += 1)
+        if (counts[index] < schema[index].min) return null;
+
+      activeRuleIndex = nextRuleIndex;
+      activeFieldCount = 0;
+      counts[nextRuleIndex] += 1;
+      const rule = schema[nextRuleIndex];
+      if (rule.mode === 'object' && token.value) return null;
+      if (
+        rule.mode === 'scalar' &&
+        !validValue(token.value, rule, isActiveTail)
+      )
+        return null;
       blocks.push({ label: token.label, body: token.value, fields: [] });
       continue;
     }
-    if (!fieldNames.has(token.label) || !blocks.length) return null;
+
+    if (activeRuleIndex < 0) return null;
+    const rule = schema[activeRuleIndex];
+    const expected = rule.fields?.[activeFieldCount];
+    if (rule.mode !== 'object' || !expected || token.label !== expected.label)
+      return null;
+    if (!validValue(token.value, expected, isActiveTail)) return null;
     blocks[blocks.length - 1].fields.push({
       label: token.label,
       value: token.value,
     });
+    activeFieldCount += 1;
   }
 
-  if (
-    !blocks.length ||
-    blocks.some(
-      (block, index) =>
-        !block.body &&
-        !block.fields.some((item) => item.value) &&
-        !(allowIncomplete && !complete && index === blocks.length - 1),
-    )
-  )
-    return null;
+  if (!blocks.length) return null;
+  if (complete) {
+    if (!activeComplete()) return null;
+    if (counts.some((count, index) => count < schema[index].min)) return null;
+  }
   return { blocks, complete };
+}
+
+function parseDisplay(
+  output: string,
+  kind: DelimitedDisplayKind,
+  allowIncomplete: boolean,
+) {
+  const parsed = parseDisplayAttempt(output, kind, allowIncomplete);
+  if (
+    parsed ||
+    !allowIncomplete ||
+    !output.endsWith('<') ||
+    output.endsWith('<<')
+  )
+    return parsed;
+  // At an object-card boundary the first grapheme of the next marker looks
+  // like illegal direct body text. Retry while holding only that ambiguous
+  // marker grapheme; free text fields keep the original successful parse and
+  // therefore still display a literal trailing "<" immediately.
+  return parseDisplayAttempt(output.slice(0, -1), kind, true);
 }
 
 export function parseDelimitedDisplay(

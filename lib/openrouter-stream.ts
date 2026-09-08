@@ -18,9 +18,8 @@ type StreamEnvelope = {
 
 /**
  * Reads OpenRouter's SSE transport while treating the model output itself as
- * plain text. Malformed transport events are ignored once useful text exists;
- * callers can still accept complete delimiter blocks instead of discarding an
- * otherwise usable generation.
+ * plain text. Malformed transport events mark the response partial while
+ * preserving every valid model character received around them.
  */
 export async function readOpenRouterTextStream(
   response: Response,
@@ -36,6 +35,7 @@ export async function readOpenRouterTextStream(
   let completed = false;
   let providerError = false;
   let received = 0;
+  let contentMode: 'delta' | 'message' | null = null;
 
   const processLine = (line: string) => {
     const normalized = line.endsWith('\r') ? line.slice(0, -1) : line;
@@ -50,6 +50,7 @@ export async function readOpenRouterTextStream(
     try {
       envelope = JSON.parse(payload) as StreamEnvelope;
     } catch {
+      providerError = true;
       return;
     }
     if (envelope.error) {
@@ -57,8 +58,23 @@ export async function readOpenRouterTextStream(
       return;
     }
     const choice = envelope.choices?.[0];
-    const content = choice?.delta?.content ?? choice?.message?.content;
-    if (typeof content === 'string') {
+    const delta = choice?.delta?.content;
+    const message = choice?.message?.content;
+    const cleanDelta =
+      typeof delta === 'string' ? delta.split('\u0000').join('') : '';
+    const cleanMessage =
+      typeof message === 'string' ? message.split('\u0000').join('') : '';
+    let content = '';
+    if (cleanDelta && contentMode !== 'message') {
+      contentMode = 'delta';
+      content = cleanDelta;
+    } else if (cleanMessage && contentMode === null) {
+      // `message.content` is a one-shot non-stream fallback. Once selected,
+      // later message snapshots or deltas must not duplicate that full value.
+      contentMode = 'message';
+      content = cleanMessage;
+    }
+    if (content) {
       text += content;
       onDelta?.(content);
     }

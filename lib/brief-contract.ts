@@ -332,7 +332,7 @@ export function buildOpenRouterRequest(
           'Summarize only supported findings. nextActions are recommendations, not facts or performed actions. Explicitly label synthetic evidence in the summary when all sources are synthetic.',
           `The only valid evidence IDs are: ${ids.join(', ')}.`,
           'Return concise Korean plain text, never JSON, Markdown tables, HTML, secrets, hidden reasoning, external references, or tool calls.',
-          'Use this delimiter format exactly: <<요약>> one compact paragraph; repeat <<확인사항>> blocks with <<제목>>, <<구분>>(사실 or 추정), <<근거>>(comma-separated allowed IDs), <<내용>>; repeat <<주의사항>> blocks with the same fields; repeat <<다음행동>> for each action; finish with <<끝>>.',
+          'Use this delimiter format exactly: write one compact paragraph directly after <<요약>> with no nested field markers; repeat <<확인사항>> blocks with exactly <<제목>>, <<구분>>(사실 or 추정), <<근거>>(comma-separated allowed IDs), <<내용>> in that order; then repeat <<주의사항>> blocks with those same four fields in that order; write each action directly after <<다음행동>> with no nested field markers; finish with <<끝>>. Never put <<제목>>, <<구분>>, <<근거>>, or <<내용>> inside <<요약>> or <<다음행동>>.',
           'Begin immediately with <<요약>>. Produce exactly 3 확인사항, at most 2 주의사항, and at most 3 다음행동. Keep the entire answer under 3,500 Korean characters and do not try to use the full token budget.',
         ].join('\n'),
       },

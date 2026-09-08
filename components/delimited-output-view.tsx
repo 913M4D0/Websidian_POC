@@ -26,11 +26,7 @@ export function DelimitedOutputView({
     : parseDelimitedDisplay(content, kind);
   if (!parsed)
     return (
-      <pre
-        className="llm-plain-output"
-        data-output-format="raw"
-        aria-live={streaming ? 'polite' : undefined}
-      >
+      <pre className="llm-plain-output" data-output-format="raw">
         {content}
         {streaming && <span className="llm-stream-caret" aria-hidden="true" />}
       </pre>
@@ -41,7 +37,6 @@ export function DelimitedOutputView({
       className="llm-section-list"
       data-output-format="sections"
       aria-label="AI 생성 결과"
-      aria-live={streaming ? 'polite' : undefined}
       aria-busy={streaming || undefined}
     >
       {parsed.blocks.map((block, index) => {

@@ -22,6 +22,7 @@ import {
 } from './issue-insight.ts';
 import {
   parseDelimitedBrief,
+  parseDelimitedDisplay,
   parseDelimitedIssueAnalysis,
   parseDelimitedIssueTestPlan,
   parseDelimitedMemory,
@@ -46,6 +47,13 @@ type GenerationHooks = {
   onDelta?: (text: string) => void;
   signal?: AbortSignal;
 };
+
+function throwIfGenerationAborted(signal?: AbortSignal) {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException('AI 요청이 취소되었습니다.', 'AbortError');
+}
 
 const generationSignal = (timeoutMs: number, signal?: AbortSignal) => {
   const deadline = AbortSignal.timeout(timeoutMs);
@@ -417,7 +425,9 @@ async function generateIssueInsight(
   kind: 'analysis' | 'test-cases',
   hooks: GenerationHooks = {},
 ): Promise<IssueAnalysisResponse | IssueTestPlanResponse> {
+  throwIfGenerationAborted(hooks.signal);
   const status = await getLlmStatus();
+  throwIfGenerationAborted(hooks.signal);
   if (!status.ready) throw new BriefError(status.reason, 503);
   const lockKey = `${actor}:insight:${kind}:${context.rootIssue.id}`;
   if (inFlight.has(lockKey))
@@ -432,7 +442,9 @@ async function generateIssueInsight(
       : llmPolicy.generation.testCases;
   try {
     const model = await verifiedModel();
+    throwIfGenerationAborted(hooks.signal);
     await reserveCall(actor, kind);
+    throwIfGenerationAborted(hooks.signal);
     const response = await fetchGeneration(
       kind,
       startedAt,
@@ -513,6 +525,7 @@ async function generateIssueInsight(
           ),
         };
   } catch (error) {
+    if (hooks.signal?.aborted) throw error;
     if (error instanceof BriefError) throw error;
     if (
       error instanceof Error &&
@@ -541,6 +554,7 @@ export async function generateIssueAnalysis(
       hooks,
     )) as IssueAnalysisResponse;
   } catch (error) {
+    if (hooks.signal?.aborted) throw error;
     const reason =
       error instanceof BriefError
         ? error.message
@@ -572,6 +586,7 @@ export async function generateIssueTestCases(
       hooks,
     )) as IssueTestPlanResponse;
   } catch (error) {
+    if (hooks.signal?.aborted) throw error;
     const reason =
       error instanceof BriefError
         ? error.message
@@ -595,7 +610,9 @@ async function generateBriefWithProvider(
   context: ReturnType<typeof buildBriefContext>,
   hooks: GenerationHooks = {},
 ): Promise<BriefResponse> {
+  throwIfGenerationAborted(hooks.signal);
   const status = await getLlmStatus();
+  throwIfGenerationAborted(hooks.signal);
   if (!status.ready) throw new BriefError(status.reason, 503);
   const lockKey = `${actor}:brief`;
   if (inFlight.has(lockKey))
@@ -606,7 +623,9 @@ async function generateBriefWithProvider(
   const startedAt = Date.now();
   try {
     const model = await verifiedModel();
+    throwIfGenerationAborted(hooks.signal);
     await reserveCall(actor, 'brief');
+    throwIfGenerationAborted(hooks.signal);
     const response = await fetchGeneration(
       'brief',
       startedAt,
@@ -674,6 +693,7 @@ async function generateBriefWithProvider(
       ...(warning ? { warning } : {}),
     };
   } catch (error) {
+    if (hooks.signal?.aborted) throw error;
     if (error instanceof BriefError) throw error;
     // Never log provider response bodies, submitted issue content or secret-bearing errors.
     if (
@@ -701,6 +721,7 @@ export async function generateBrief(
   try {
     return await generateBriefWithProvider(actor, context, hooks);
   } catch (error) {
+    if (hooks.signal?.aborted) throw error;
     const reason =
       error instanceof BriefError
         ? error.message
@@ -786,9 +807,10 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
         providerRequestId: providerRequestId(response),
       });
     const compiled = parseDelimitedMemory(streamed.text);
+    const display = parseDelimitedDisplay(streamed.text, 'memory');
     if (
       warning ||
-      !streamed.text.includes('<<끝>>') ||
+      !display ||
       !compiled.summary ||
       (!compiled.concepts.length && !compiled.facets.length)
     )
