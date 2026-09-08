@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
-  parseDelimitedBrief,
   parseDelimitedDisplay,
   parseDelimitedDisplayProgress,
   parseDelimitedIssueAnalysis,
@@ -198,7 +197,6 @@ void test('malformed or missing delimiters never discard non-empty model text', 
     parseDelimitedIssueTestPlan(raw, ids).cases[0].expected,
     /구획을/,
   );
-  assert.match(parseDelimitedBrief(raw, ids).summary, /구획을/);
   assert.match(parseDelimitedMemory(raw).summary, /구획을/);
 });
 
@@ -271,13 +269,16 @@ void test('incomplete or malformed delimiter output falls back without alteratio
     '<<제목>>닫히지 않은 결과',
     '<<내용>>받은 텍스트는 보존합니다.',
   ].join('\n');
-  assert.equal(parseDelimitedDisplay(malformed, 'brief'), null);
+  assert.equal(parseDelimitedDisplay(malformed, 'analysis'), null);
   assert.equal(
-    parseDelimitedDisplay(`${malformed}\n<<알수없는구획>>값\n<<끝>>`, 'brief'),
+    parseDelimitedDisplay(
+      `${malformed}\n<<알수없는구획>>값\n<<끝>>`,
+      'analysis',
+    ),
     null,
   );
   assert.equal(
-    parseDelimitedDisplay(`설명 문구\n${malformed}\n<<끝>>`, 'brief'),
+    parseDelimitedDisplay(`설명 문구\n${malformed}\n<<끝>>`, 'analysis'),
     null,
   );
   assert.equal(
@@ -375,28 +376,15 @@ void test('test-case cards require every field, three cases, and valid marker or
     assert.ok(parseDelimitedDisplay(output, 'test-cases'), output);
 });
 
-void test('brief and memory card schemas reject missing, reversed, or empty fields', () => {
-  const validBrief =
-    '<<요약>>요약<<확인사항>><<제목>>사실<<구분>>사실<<근거>>WS-1<<내용>>내용<<다음행동>>확인한다.<<끝>>';
+void test('memory card schema rejects missing, reversed, or empty fields', () => {
   const validMemory =
     '<<요약>>처리 기억<<핵심어>>주문\n재시도<<분류>><<이름>>영역<<값>>주문\n결제<<끝>>';
   const facetsOnlyMemory =
     '<<요약>>처리 기억<<핵심어>><<분류>><<이름>>영역<<값>>주문<<끝>>';
-  assert.ok(parseDelimitedDisplay(validBrief, 'brief'));
   assert.ok(parseDelimitedDisplay(validMemory, 'memory'));
   assert.ok(parseDelimitedDisplay(facetsOnlyMemory, 'memory'));
-  for (const [output, kind] of [
-    [
-      '<<요약>>요약<<다음행동>>확인<<확인사항>><<제목>>x<<구분>>사실<<근거>>WS-1<<내용>>n<<끝>>',
-      'brief',
-    ],
-    [
-      '<<요약>>요약<<확인사항>><<제목>>x<<구분>>사실<<근거>><<내용>>n<<끝>>',
-      'brief',
-    ],
-    ['<<요약>>기억<<핵심어>>a<<분류>><<값>>x<<이름>>y<<끝>>', 'memory'],
-  ] as const)
-    assert.equal(parseDelimitedDisplay(output, kind), null, output);
+  const reversed = '<<요약>>기억<<핵심어>>a<<분류>><<값>>x<<이름>>y<<끝>>';
+  assert.equal(parseDelimitedDisplay(reversed, 'memory'), null, reversed);
   assert.ok(
     parseDelimitedDisplay(
       '<<요약>>기억<<핵심어>>a<<분류>><<이름>>y<<값>>1\n2\n3\n4\n5<<끝>>',
@@ -452,10 +440,6 @@ void test('every grapheme prefix of valid outputs remains card-renderable after 
     [
       `<<전략>>전략\n${testCase(1)}\n${testCase(2)}\n${testCase(3)}\n<<끝>>`,
       'test-cases',
-    ],
-    [
-      '<<요약>>요약<<확인사항>><<제목>>확인<<구분>>사실<<근거>>WS-1<<내용>>내용<<끝>>',
-      'brief',
     ],
     ['<<요약>>기억<<핵심어>>검색<<끝>>', 'memory'],
   ] as const;
@@ -792,12 +776,7 @@ void test('the UI formats complete delimiters and preserves raw streaming or bro
     /DelimitedOutputView content=\{analysis\.content\} kind="analysis"/,
   );
   assert.match(source, /content=\{testPlan\.content\}[\s\S]*kind="test-cases"/);
-  assert.match(
-    source,
-    /DelimitedOutputView content=\{brief\.content\} kind="brief"/,
-  );
   assert.match(source, /llm-plain-output[^\n]*\{draft\}/);
-  assert.match(source, /llm-plain-output[^\n]*\{briefDraft\}/);
   const view = readFileSync(
     new URL('../components/delimited-output-view.tsx', import.meta.url),
     'utf8',
@@ -818,10 +797,6 @@ void test('the UI formats complete delimiters and preserves raw streaming or bro
   assert.match(
     source,
     /DelimitedOutputView content=\{draft\} kind=\{mode\} streaming/,
-  );
-  assert.match(
-    source,
-    /content=\{briefDraft\}[\s\S]*kind="brief"[\s\S]*streaming/,
   );
   assert.doesNotMatch(source, /pendingBirthIds/);
   assert.match(source, /setBirthIssueId\(issue\.id\)/);
@@ -845,4 +820,37 @@ void test('completed AI results can be copied verbatim with a restricted-browser
   assert.match(source, /복사 완료/);
   assert.match(source, /복사 실패 · 다시 시도/);
   assert.match(source, /현재까지 받은 내용 복사/);
+});
+
+void test('selected issues use progressive disclosure and the History Brief path is removed', () => {
+  const source = readFileSync(
+    new URL('../components/memory-universe.tsx', import.meta.url),
+    'utf8',
+  );
+  const css = readFileSync(
+    new URL('../app/workbench.css', import.meta.url),
+    'utf8',
+  );
+  const overview = source.indexOf('className="inspector-overview"');
+  const aiTools = source.indexOf('className="inspector-ai-tools"');
+  const disclosure = source.indexOf('className="inspector-details"');
+  const fullBody = source.indexOf('className="original-body"', disclosure);
+
+  assert.ok(overview >= 0 && overview < aiTools);
+  assert.ok(disclosure > aiTools && fullBody > disclosure);
+  assert.match(source, /compactText\(selected\.body\)/);
+  assert.match(source, /key=\{`\$\{selected\.id\}:\$\{selected\.status\}`\}/);
+  assert.match(source, /history\?\.evidence\.slice\(0, 8\)\.map/);
+  assert.match(source, /onClick=\{\(\) => inspectIssue\(issue\)\}/);
+  assert.match(source, /<small>\{shortId\(contextRoot\.id\)\} 기준<\/small>/);
+  assert.doesNotMatch(source, /AI History Brief|generateBrief|\/api\/brief/);
+  assert.doesNotMatch(source, /className="reroot-button"/);
+  assert.match(
+    css,
+    /\.issue-inspector \.related-issue \{[\s\S]*min-height: 50px/,
+  );
+  assert.equal(
+    existsSync(new URL('../app/api/brief/route.ts', import.meta.url)),
+    false,
+  );
 });

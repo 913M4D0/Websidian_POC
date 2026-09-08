@@ -3,7 +3,6 @@ import type {
   IssueAnalysis,
   IssueTestPlan,
 } from './issue-insight.ts';
-import type { BriefResult } from './brief-contract.ts';
 import type { CompiledMemory, MemoryFacet } from './memory-artifact.ts';
 import type { Issue } from './issues.ts';
 
@@ -11,11 +10,7 @@ const markers = () => /<<([^<>\r\n]{1,40})>>/g;
 
 type Section = { name: string; body: string };
 
-export type DelimitedDisplayKind =
-  | 'analysis'
-  | 'test-cases'
-  | 'brief'
-  | 'memory';
+export type DelimitedDisplayKind = 'analysis' | 'test-cases' | 'memory';
 
 export type DelimitedDisplayField = {
   label: string;
@@ -107,24 +102,6 @@ const displaySchemas: Record<
       mode: 'object',
       fields: displayClaimFields,
     },
-  ],
-  brief: [
-    { label: '요약', min: 1, max: 1, mode: 'scalar' },
-    {
-      label: '확인사항',
-      min: 1,
-      max: 3,
-      mode: 'object',
-      fields: displayClaimFields,
-    },
-    {
-      label: '주의사항',
-      min: 0,
-      max: 2,
-      mode: 'object',
-      fields: displayClaimFields,
-    },
-    { label: '다음행동', min: 0, max: 3, mode: 'scalar' },
   ],
   memory: [
     { label: '요약', min: 1, max: 1, mode: 'scalar' },
@@ -515,49 +492,6 @@ export function parseDelimitedIssueTestPlan(
       .filter((item) => item.name === '회귀범위')
       .slice(0, 8)
       .map((item) => claimFromBlock(item.body, allowedIds, '회귀 확인 범위')),
-  };
-}
-
-export function parseDelimitedBrief(
-  output: string,
-  allowedIds: readonly string[],
-): BriefResult {
-  const top = ['요약', '확인사항', '주의사항', '다음행동', '끝'] as const;
-  const parsed = sections(output, top);
-  const raw = clean(output, 2400);
-  const briefClaim = (item: Section, fallbackTitle: string) => {
-    const claim = claimFromBlock(item.body, allowedIds, fallbackTitle);
-    return {
-      text: `${claim.title}: ${claim.text}`,
-      kind: claim.kind,
-      evidenceIds: claim.evidenceIds,
-    };
-  };
-  const findings = parsed
-    .filter((item) => item.name === '확인사항')
-    .slice(0, 10)
-    .map((item) => briefClaim(item, '확인된 맥락'));
-  return {
-    summary:
-      clean(parsed.find((item) => item.name === '요약')?.body || raw, 2400) ||
-      '선택한 이력을 기준으로 현재 이슈의 맥락을 정리했습니다.',
-    findings: findings.length
-      ? findings
-      : [
-          {
-            text: raw || '연결된 이슈의 원문을 확인해야 합니다.',
-            kind: 'inference',
-            evidenceIds: [],
-          },
-        ],
-    cautions: parsed
-      .filter((item) => item.name === '주의사항')
-      .slice(0, 8)
-      .map((item) => briefClaim(item, '주의 사항')),
-    nextActions: parsed
-      .filter((item) => item.name === '다음행동')
-      .flatMap((item) => list(item.body, 8, 800))
-      .slice(0, 8),
   };
 }
 

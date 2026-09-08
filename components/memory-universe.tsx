@@ -48,9 +48,8 @@ import {
 } from '@/lib/memory-graph';
 import type { Issue } from '@/lib/issues';
 import { issueText, type IssueSearchResult } from '@/lib/issue-search';
-import { llmPolicy } from '@/lib/llm-policy';
 import type { IssueHistory } from '@/lib/issue-history';
-import type { BriefResponse, LlmStatus } from '@/lib/brief-contract';
+import type { LlmStatus } from '@/lib/brief-contract';
 import type { MemoryArtifactClient } from '@/lib/memory-artifact';
 import {
   demoResolutionDefaults,
@@ -175,6 +174,15 @@ const shortId = (id: string) =>
 const percent = (n: number) => `${(n * 100).toFixed(1)}%`;
 const elapsedSeconds = (milliseconds: number) =>
   (milliseconds / 1000).toFixed(1);
+const compactText = (value: string, limit = 150) => {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= limit) return normalized;
+  const clipped = normalized
+    .slice(0, limit)
+    .replace(/\s+\S*$/, '')
+    .trimEnd();
+  return `${clipped || normalized.slice(0, limit)}…`;
+};
 const fieldText = (value: FormDataEntryValue | null, fallback = '') =>
   typeof value === 'string' ? value : fallback;
 const splitTags = (value: FormDataEntryValue | null) =>
@@ -926,29 +934,20 @@ export function MemoryUniverse() {
   const [graphError, setGraphError] = useState(false);
   const highlightStrength = 0.7;
   const neighbors = 5;
-  const [tab, setTab] = useState<'issues' | 'memories' | 'search' | 'brief'>(
-    'issues',
-  );
+  const [tab, setTab] = useState<'issues' | 'memories' | 'search'>('issues');
   const [contextRootId, setContextRootId] = useState<string | null>(null);
   const [listFilter, setListFilter] = useState('');
   const [history, setHistory] = useState<IssueHistory | null>(null);
-  const [brief, setBrief] = useState<BriefResponse | null>(null);
-  const [briefBusy, setBriefBusy] = useState(false);
-  const [briefDraft, setBriefDraft] = useState('');
-  const [briefElapsedMs, setBriefElapsedMs] = useState(0);
-  const [briefFailure, setBriefFailure] = useState('');
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [progressText, setProgressText] = useState('');
   const [progressBusy, setProgressBusy] = useState(false);
   const [demoResetBusy, setDemoResetBusy] = useState(false);
   const [query, setQuery] = useState('');
-  const [submittedQuery, setSubmittedQuery] = useState('');
   const [referenceId, setReferenceId] = useState<string | undefined>();
   const [results, setResults] = useState<IssueSearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [limit, setLimit] = useState(24);
   const [form, setForm] = useState<'create' | 'resolve' | null>(null);
-  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [integrationOpen, setIntegrationOpen] = useState(false);
   const [compilingIds, setCompilingIds] = useState<Set<string>>(new Set());
@@ -970,32 +969,11 @@ export function MemoryUniverse() {
   const [birthIssueId, setBirthIssueId] = useState<string | null>(null);
   const [birthVersion, setBirthVersion] = useState(0);
   const searchSequence = useRef(0);
-  const briefSequence = useRef(0);
   const contextSequence = useRef(0);
-  const briefScrollRef = useRef<HTMLElement>(null);
-  const briefFollowRef = useRef(true);
-  const briefAbortRef = useRef<AbortController | null>(null);
   const insightAbortRef = useRef<AbortController | null>(null);
-
-  const invalidateBrief = useCallback(() => {
-    briefSequence.current += 1;
-    briefAbortRef.current?.abort();
-    briefAbortRef.current = null;
-    setBriefBusy(false);
-    setBrief(null);
-    setBriefDraft('');
-    setBriefFailure('');
-  }, []);
-
-  useLayoutEffect(() => {
-    const viewport = briefScrollRef.current;
-    if (viewport && briefFollowRef.current)
-      viewport.scrollTop = viewport.scrollHeight;
-  }, [brief, briefBusy, briefDraft]);
 
   useEffect(
     () => () => {
-      briefAbortRef.current?.abort();
       insightAbortRef.current?.abort();
     },
     [],
@@ -1016,8 +994,6 @@ export function MemoryUniverse() {
       setGravityRootId(null);
       setContextRootId(null);
       setHistory(null);
-      invalidateBrief();
-      setPinnedIds([]);
       setResults(null);
       setSearching(false);
       setAnalysis(null);
@@ -1028,7 +1004,7 @@ export function MemoryUniverse() {
     } finally {
       setLoading(false);
     }
-  }, [invalidateBrief]);
+  }, []);
 
   useEffect(() => {
     if (!birthIssueId) return;
@@ -1147,7 +1123,6 @@ export function MemoryUniverse() {
     if (window.innerWidth <= 680) setSidebarOpen(false);
   }
   function beginContext(issue: Issue) {
-    invalidateBrief();
     contextSequence.current++;
     setContextRootId(issue.id);
     setSelectedId(issue.id);
@@ -1164,7 +1139,6 @@ export function MemoryUniverse() {
   }
   const select = (node: MemoryNode | null) => {
     if (!node) {
-      invalidateBrief();
       setSelectedId(null);
       setGravityRootId(null);
       setContextRootId(null);
@@ -1178,7 +1152,6 @@ export function MemoryUniverse() {
   };
   const selectIssue = (issue: Issue) => beginContext(issue);
   function resetView() {
-    invalidateBrief();
     contextSequence.current++;
     setSelectedId(null);
     setGravityRootId(null);
@@ -1191,7 +1164,6 @@ export function MemoryUniverse() {
     if (!text.trim()) return;
     const sequence = ++searchSequence.current;
     setSearching(true);
-    invalidateBrief();
     setError('');
     setTab('search');
     setSidebarOpen(true);
@@ -1202,7 +1174,6 @@ export function MemoryUniverse() {
       );
       if (sequence !== searchSequence.current) return;
       setResults(response.results);
-      setSubmittedQuery(text);
       setLimit(24);
     } catch (cause) {
       if (sequence === searchSequence.current)
@@ -1210,9 +1181,6 @@ export function MemoryUniverse() {
     } finally {
       if (sequence === searchSequence.current) setSearching(false);
     }
-  }
-  function explore(issue: Issue) {
-    beginContext(issue);
   }
   function saved(issue: Issue) {
     searchSequence.current += 1;
@@ -1242,11 +1210,8 @@ export function MemoryUniverse() {
     setListFilter('');
     setResults(null);
     setReferenceId(undefined);
-    setSubmittedQuery('');
     setQuery('');
     setHistory(null);
-    invalidateBrief();
-    setPinnedIds([]);
     setProgressText('');
     setNotice(
       issue.status === 'closed'
@@ -1254,17 +1219,6 @@ export function MemoryUniverse() {
         : '신규 이슈가 접수됐습니다. 관련 이력이 자동으로 정렬됩니다.',
     );
     if (issue.status === 'closed') void compileMemory(issue.id);
-  }
-  function togglePin(id: string) {
-    if (byId.get(id)?.status !== 'closed' || id === referenceId) return;
-    invalidateBrief();
-    setPinnedIds((current) =>
-      current.includes(id)
-        ? current.filter((item) => item !== id)
-        : current.length < 16
-          ? [...current, id]
-          : current,
-    );
   }
   async function saveProgress() {
     if (
@@ -1296,7 +1250,6 @@ export function MemoryUniverse() {
         setTestPlan(null);
         void loadContext(data.issue);
       }
-      invalidateBrief();
       setResults(null);
       searchSequence.current++;
       setSearching(false);
@@ -1370,67 +1323,6 @@ export function MemoryUniverse() {
   async function refreshAfterImport(message: string) {
     await load();
     setNotice(message);
-  }
-  async function generateBrief() {
-    if (!history || !submittedQuery || briefBusy || briefAbortRef.current)
-      return;
-    const controller = new AbortController();
-    briefAbortRef.current = controller;
-    const sequence = ++briefSequence.current;
-    const startedAt = performance.now();
-    const elapsedTimer = window.setInterval(() => {
-      if (sequence === briefSequence.current)
-        setBriefElapsedMs(performance.now() - startedAt);
-    }, 250);
-    setBriefBusy(true);
-    briefFollowRef.current = true;
-    setBrief(null);
-    setBriefDraft('');
-    setBriefElapsedMs(0);
-    setBriefFailure('');
-    setError('');
-    try {
-      const data = await streamApi<BriefResponse>(
-        '/api/brief',
-        {
-          query: history.query,
-          referenceId: history.referenceId,
-          pinnedIds,
-        },
-        {
-          onDelta: (text) => {
-            if (briefAbortRef.current === controller)
-              setBriefDraft((current) => `${current}${text}`);
-          },
-          onReplace: (text) => {
-            if (briefAbortRef.current === controller) setBriefDraft(text);
-          },
-          onHeartbeat: (elapsed) =>
-            briefAbortRef.current === controller &&
-            setBriefElapsedMs((current) => Math.max(current, elapsed)),
-        },
-        { signal: controller.signal },
-      );
-      if (
-        !controller.signal.aborted &&
-        briefAbortRef.current === controller &&
-        sequence === briefSequence.current
-      )
-        setBrief(data);
-    } catch (cause) {
-      if (
-        !controller.signal.aborted &&
-        briefAbortRef.current === controller &&
-        sequence === briefSequence.current
-      )
-        setBriefFailure((cause as Error).message);
-    } finally {
-      window.clearInterval(elapsedTimer);
-      if (briefAbortRef.current === controller) {
-        briefAbortRef.current = null;
-        setBriefBusy(false);
-      }
-    }
   }
   async function generateInsight(kind: 'analysis' | 'test-cases') {
     if (!contextRoot || insightBusy || insightAbortRef.current) return;
@@ -1615,436 +1507,182 @@ export function MemoryUniverse() {
                 </button>
               ))}
             </div>
-            {tab !== 'brief' ? (
-              <>
-                <form
-                  className="issue-search"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (tab === 'search') void search();
-                  }}
-                >
-                  <label htmlFor="history-query" className="sr-only">
-                    이슈 내용으로 과거 기록 탐색
-                  </label>
-                  <div className="search-field">
-                    <Search size={16} />
-                    <Input
-                      id="history-query"
-                      value={tab === 'search' ? query : listFilter}
-                      maxLength={6000}
-                      onChange={(event) => {
-                        if (tab === 'search') {
-                          setQuery(event.target.value);
-                          setReferenceId(undefined);
-                          searchSequence.current++;
-                          invalidateBrief();
-                          setSearching(false);
-                          setResults(null);
-                          setSubmittedQuery('');
-                        } else {
-                          setListFilter(event.target.value);
-                          setLimit(24);
-                        }
-                      }}
-                      placeholder={
-                        tab === 'search'
-                          ? '어떤 히스토리가 필요한가요?'
-                          : '제목 · 이슈 번호 · 담당 팀 검색'
-                      }
-                    />
-                    <button
-                      type="submit"
-                      disabled={tab !== 'search' || searching || !query.trim()}
-                      aria-label="과거 기록 탐색"
-                    >
-                      {searching ? (
-                        <LoaderCircle size={16} className="animate-spin" />
-                      ) : (
-                        <ChevronRight size={17} />
-                      )}
-                    </button>
-                  </div>
-                  <p>
-                    {tab === 'issues'
-                      ? '처리를 기다리는 이슈'
-                      : tab === 'memories'
-                        ? '완료되어 축적된 기억'
-                        : '완료 이력만 탐색 · 최대 2-hop 근거 수집'}
-                  </p>
-                </form>
-                <div className="list-caption">
-                  <span>
-                    {tab === 'search' && results
-                      ? `전체 ${results.length}건 순위`
-                      : `ISSUES · ${list.length}`}
-                  </span>
-                  {tab === 'search' && (
-                    <button
-                      onClick={() => {
+            <>
+              <form
+                className="issue-search"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (tab === 'search') void search();
+                }}
+              >
+                <label htmlFor="history-query" className="sr-only">
+                  이슈 내용으로 과거 기록 탐색
+                </label>
+                <div className="search-field">
+                  <Search size={16} />
+                  <Input
+                    id="history-query"
+                    value={tab === 'search' ? query : listFilter}
+                    maxLength={6000}
+                    onChange={(event) => {
+                      if (tab === 'search') {
+                        setQuery(event.target.value);
+                        setReferenceId(undefined);
                         searchSequence.current++;
                         setSearching(false);
                         setResults(null);
-                        setQuery('');
-                        setSubmittedQuery('');
-                        setReferenceId(undefined);
-                        setTab('issues');
-                        invalidateBrief();
-                      }}
-                    >
-                      탐색 초기화
-                    </button>
-                  )}
-                </div>
-                {tab === 'search' && results && (
-                  <div className="search-note">
-                    {referenceId
-                      ? `${shortId(referenceId)} 기준`
-                      : '입력한 내용 기준'}{' '}
-                    · {results.filter((result) => result.score > 0).length}건
-                    일치
-                    <br />
-                    점수는{' '}
-                    {results.some(
-                      (result) => result.semanticScore !== undefined,
-                    )
-                      ? '의미·문장·자료의 혼합 관련도'
-                      : '문장·자료 일치도'}
-                    이며, 정답 확률이 아닙니다.
-                    {results.every((result) => result.score === 0) && (
-                      <strong>
-                        일치하는 기록이 없습니다. 전체 이슈는 아래에서 확인할 수
-                        있습니다.
-                      </strong>
-                    )}
-                  </div>
-                )}
-                <nav
-                  className="issue-list"
-                  aria-label={
-                    tab === 'issues' ? '진행 이슈 목록' : '완료 기억 목록'
-                  }
-                >
-                  {loading && (
-                    <p className="empty-copy">이슈를 불러오는 중입니다…</p>
-                  )}
-                  {!loading && !list.length && (
-                    <p className="empty-copy">표시할 이슈가 없습니다.</p>
-                  )}
-                  {list.slice(0, limit).map((issue) => {
-                    const result =
-                      tab === 'search' ? resultById.get(issue.id) : undefined;
-                    return (
-                      <button
-                        key={issue.id}
-                        className={`issue-row ${selectedId === issue.id ? 'is-selected' : ''}`}
-                        onClick={() => selectIssue(issue)}
-                        aria-pressed={selectedId === issue.id}
-                      >
-                        <span className="issue-row-meta">
-                          <span
-                            style={{
-                              color:
-                                issue.status === 'open'
-                                  ? '#ffffff'
-                                  : colorFor(issue.team),
-                            }}
-                          >
-                            <CircleDot size={12} />
-                            {shortId(issue.id)}
-                          </span>
-                          <span>
-                            {result
-                              ? `${percent(result.score)} 일치`
-                              : issue.occurredAt}
-                          </span>
-                        </span>
-                        <strong>{issue.title}</strong>
-                        {issue.id in representativeScenarios && (
-                          <small className="representative-row">
-                            대표 사례 ·{' '}
-                            {
-                              representativeScenarios[
-                                issue.id as keyof typeof representativeScenarios
-                              ]
-                            }
-                          </small>
-                        )}
-                        <span className="issue-row-bottom">
-                          <span>{issue.team}</span>
-                          <span
-                            className={
-                              issue.status === 'open'
-                                ? 'status-open'
-                                : 'status-closed'
-                            }
-                          >
-                            {issue.status === 'open' ? '진행 중' : '완료 기억'}
-                          </span>
-                        </span>
-                        {result && result.evidence.length > 0 && (
-                          <small>{result.evidence[0]}</small>
-                        )}
-                      </button>
-                    );
-                  })}
-                  {list.length > limit && (
-                    <Button
-                      className="load-more"
-                      variant="ghost"
-                      onClick={() => setLimit((value) => value + 24)}
-                    >
-                      더 보기 · {limit} / {list.length}
-                    </Button>
-                  )}
-                </nav>
-              </>
-            ) : (
-              <section
-                ref={briefScrollRef}
-                className="brief-workspace"
-                onScroll={(event) => {
-                  const viewport = event.currentTarget;
-                  briefFollowRef.current =
-                    viewport.scrollHeight -
-                      viewport.scrollTop -
-                      viewport.clientHeight <=
-                    48;
-                }}
-              >
-                <span className="section-kicker">HISTORY / EVIDENCE</span>
-                <h2>
-                  이번 이슈를 위한
-                  <br />
-                  과거의 근거.
-                </h2>
-                <p>
-                  기존 이슈의 원문은 바뀌지 않습니다. 현재 관점의 해석은 이
-                  화면에서만 확인합니다.
-                </p>
-                {referenceId && (
+                      } else {
+                        setListFilter(event.target.value);
+                        setLimit(24);
+                      }
+                    }}
+                    placeholder={
+                      tab === 'search'
+                        ? '어떤 히스토리가 필요한가요?'
+                        : '제목 · 이슈 번호 · 담당 팀 검색'
+                    }
+                  />
                   <button
-                    className="context-reference"
+                    type="submit"
+                    disabled={tab !== 'search' || searching || !query.trim()}
+                    aria-label="과거 기록 탐색"
+                  >
+                    {searching ? (
+                      <LoaderCircle size={16} className="animate-spin" />
+                    ) : (
+                      <ChevronRight size={17} />
+                    )}
+                  </button>
+                </div>
+                <p>
+                  {tab === 'issues'
+                    ? '처리를 기다리는 이슈'
+                    : tab === 'memories'
+                      ? '완료되어 축적된 기억'
+                      : '완료 이력만 탐색 · 최대 2-hop 근거 수집'}
+                </p>
+              </form>
+              <div className="list-caption">
+                <span>
+                  {tab === 'search' && results
+                    ? `전체 ${results.length}건 순위`
+                    : `ISSUES · ${list.length}`}
+                </span>
+                {tab === 'search' && (
+                  <button
                     onClick={() => {
-                      const issue = byId.get(referenceId);
-                      if (issue) selectIssue(issue);
+                      searchSequence.current++;
+                      setSearching(false);
+                      setResults(null);
+                      setQuery('');
+                      setReferenceId(undefined);
+                      setTab('issues');
                     }}
                   >
-                    {shortId(referenceId)} · {byId.get(referenceId)?.title}
+                    탐색 초기화
                   </button>
                 )}
-                {!history && (
-                  <div className="brief-empty">
-                    <Network size={28} />
-                    <p>
-                      진행 이슈에서 ‘히스토리’를 누르거나 탐색어를 입력하면,
-                      직접 연결과 그 다음 연결의 근거를 모읍니다.
-                    </p>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        if (contextRoot) explore(contextRoot);
-                        else {
-                          setTab('search');
-                          setSidebarOpen(true);
-                        }
-                      }}
-                    >
-                      히스토리 탐색 시작
-                    </Button>
-                  </div>
-                )}
-                {history && (
-                  <>
-                    <h3>
-                      자동 수집한 과거 이력{' '}
-                      <span>{history.evidence.length}건</span>
-                    </h3>
-                    <p className="evidence-disclosure">
-                      텍스트·자료 기반 2-hop 탐색 / 아래 내용은 원문 발췌입니다.
-                      AI의 해석이나 원인 확정이 아닙니다.
-                    </p>
-                    {!history.evidence.length && (
-                      <p>
-                        일치하는 완료 기록을 찾지 못했습니다. 탐색어를 바꾸거나
-                        직접 참고할 기억을 담아 주세요.
-                      </p>
-                    )}
-                    {history.evidence.map((evidence) => (
-                      <article
-                        className="history-evidence"
-                        key={evidence.issueId}
-                      >
-                        <div className="evidence-route">
-                          <span>
-                            {evidence.depth === 2 ? '연결의 연결' : '직접 탐색'}
-                          </span>
-                          <time>{evidence.occurredAt}</time>
-                        </div>
-                        <button
-                          className="evidence-title"
-                          onClick={() => {
-                            const issue = byId.get(evidence.issueId);
-                            if (issue) selectIssue(issue);
-                          }}
-                        >
-                          {shortId(evidence.issueId)} · {evidence.title}
-                        </button>
-                        {evidence.viaIssueId && (
-                          <button
-                            className="evidence-via"
-                            onClick={() => {
-                              const via = byId.get(evidence.viaIssueId!);
-                              if (via) selectIssue(via);
-                            }}
-                          >
-                            경유한 기록: {shortId(evidence.viaIssueId)} ↗
-                          </button>
-                        )}
-                        <p>{evidence.summary}</p>
-                        {!!evidence.sharedResources.length && (
-                          <small>
-                            공통 자료 {evidence.sharedResources.length}개 ·{' '}
-                            {evidence.sharedResources.join(', ')}
-                          </small>
-                        )}
-                        <button
-                          className="evidence-pin"
-                          aria-pressed={pinnedIds.includes(evidence.issueId)}
-                          onClick={() => togglePin(evidence.issueId)}
-                        >
-                          {pinnedIds.includes(evidence.issueId) ? (
-                            <Check size={12} />
-                          ) : (
-                            <Plus size={12} />
-                          )}
-                          {pinnedIds.includes(evidence.issueId)
-                            ? '처리 참고 근거에 담음'
-                            : '처리 참고 근거로 담기'}
-                        </button>
-                      </article>
-                    ))}
-                  </>
-                )}
-                <h3>직접 선택한 참고 근거 {pinnedIds.length}건</h3>
-                {pinnedIds.length === 0 && (
-                  <p>
-                    활용할 과거 기록을 담으면, 이슈 완료 시 참고 관계로
-                    보관됩니다.
-                  </p>
-                )}
-                {pinnedIds.map((id) => {
-                  const issue = byId.get(id);
-                  return issue ? (
-                    <div className="evidence-item" key={id}>
-                      <button onClick={() => selectIssue(issue)}>
-                        <span>{shortId(id)} · 원문</span>
-                        {issue.title}
-                      </button>
-                      <button
-                        aria-label={`${shortId(id)} 근거 제거`}
-                        onClick={() => togglePin(id)}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ) : null;
-                })}
-                <div className="provider-state">
-                  <span>
-                    {llmStatus?.ready
-                      ? 'AI 분석 준비됨'
-                      : '원문 안전 결과 사용 가능'}
-                  </span>
-                  <strong>
-                    {llmPolicy.provider} · {llmPolicy.requestedModel}
-                  </strong>
-                  <small>
-                    {llmStatus?.reason || '서버 연결 설정을 확인하고 있습니다.'}
-                    <br />
-                    균형 추론 · 빠른 응답 우선 · 근거 없는 단정은 구분
-                  </small>
+              </div>
+              {tab === 'search' && results && (
+                <div className="search-note">
+                  {referenceId
+                    ? `${shortId(referenceId)} 기준`
+                    : '입력한 내용 기준'}{' '}
+                  · {results.filter((result) => result.score > 0).length}건 일치
+                  <br />
+                  점수는{' '}
+                  {results.some((result) => result.semanticScore !== undefined)
+                    ? '의미·문장·자료의 혼합 관련도'
+                    : '문장·자료 일치도'}
+                  이며, 정답 확률이 아닙니다.
+                  {results.every((result) => result.score === 0) && (
+                    <strong>
+                      일치하는 기록이 없습니다. 전체 이슈는 아래에서 확인할 수
+                      있습니다.
+                    </strong>
+                  )}
                 </div>
-                <Button
-                  className="w-full brief-generate"
-                  disabled={!history || !submittedQuery || briefBusy}
-                  onClick={() => void generateBrief()}
-                >
-                  {briefBusy && <LoaderCircle className="animate-spin" />}
-                  {briefBusy
-                    ? 'AI 분석 중 · 받는 즉시 표시'
-                    : 'AI History Brief 생성'}
-                </Button>
-                {briefFailure && (
-                  <div className="brief-inline-error">
-                    <span role="alert">{briefFailure}</span>
-                    {briefDraft && (
-                      <pre className="llm-plain-output">{briefDraft}</pre>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void generateBrief()}
+              )}
+              <nav
+                className="issue-list"
+                aria-label={
+                  tab === 'issues' ? '진행 이슈 목록' : '완료 기억 목록'
+                }
+              >
+                {loading && (
+                  <p className="empty-copy">이슈를 불러오는 중입니다…</p>
+                )}
+                {!loading && !list.length && (
+                  <p className="empty-copy">표시할 이슈가 없습니다.</p>
+                )}
+                {list.slice(0, limit).map((issue) => {
+                  const result =
+                    tab === 'search' ? resultById.get(issue.id) : undefined;
+                  return (
+                    <button
+                      key={issue.id}
+                      className={`issue-row ${selectedId === issue.id ? 'is-selected' : ''}`}
+                      onClick={() => selectIssue(issue)}
+                      aria-pressed={selectedId === issue.id}
                     >
-                      Brief 다시 시도
-                    </Button>
-                  </div>
-                )}
-                <small>
-                  생성 시 현재 이슈와 선택·수집한 이력이 OpenRouter에
-                  전송됩니다. 키가 없어도 위의 원문 탐색과 이슈 처리는 사용할 수
-                  있습니다.
-                </small>
-                {briefBusy && (
-                  <div className="brief-stream-live">
-                    <small>
-                      <span aria-live="polite">
-                        {briefDraft
-                          ? '구획을 감지해 카드를 채우는 중'
-                          : '첫 구획을 기다리는 중'}
-                      </span>
-                      <span aria-hidden="true">
-                        {' · '}
-                        {elapsedSeconds(briefElapsedMs)}초 경과
-                      </span>
-                    </small>
-                    {briefDraft && (
-                      <DelimitedOutputView
-                        content={briefDraft}
-                        kind="brief"
-                        streaming
-                      />
-                    )}
-                  </div>
-                )}
-                {brief && (
-                  <div className="generated-brief">
-                    <span className="section-kicker">AI HISTORY BRIEF</span>
-                    {brief.warning && (
-                      <p className="insight-stream-warning">{brief.warning}</p>
-                    )}
-                    <DelimitedOutputView content={brief.content} kind="brief" />
-                    <div className="brief-citations">
-                      {brief.evidenceIds.map((id) => (
-                        <button
-                          key={id}
-                          onClick={() => {
-                            const issue = byId.get(id);
-                            if (issue) selectIssue(issue);
+                      <span className="issue-row-meta">
+                        <span
+                          style={{
+                            color:
+                              issue.status === 'open'
+                                ? '#ffffff'
+                                : colorFor(issue.team),
                           }}
                         >
-                          {shortId(id)} 원문 ↗
-                        </button>
-                      ))}
-                    </div>
-                    <small>
-                      AI 출력은 원본 기록을 대체하지 않습니다. 조치 전 근거를
-                      확인하세요.
-                    </small>
-                  </div>
+                          <CircleDot size={12} />
+                          {shortId(issue.id)}
+                        </span>
+                        <span>
+                          {result
+                            ? `${percent(result.score)} 일치`
+                            : issue.occurredAt}
+                        </span>
+                      </span>
+                      <strong>{issue.title}</strong>
+                      {issue.id in representativeScenarios && (
+                        <small className="representative-row">
+                          대표 사례 ·{' '}
+                          {
+                            representativeScenarios[
+                              issue.id as keyof typeof representativeScenarios
+                            ]
+                          }
+                        </small>
+                      )}
+                      <span className="issue-row-bottom">
+                        <span>{issue.team}</span>
+                        <span
+                          className={
+                            issue.status === 'open'
+                              ? 'status-open'
+                              : 'status-closed'
+                          }
+                        >
+                          {issue.status === 'open' ? '진행 중' : '완료 기억'}
+                        </span>
+                      </span>
+                      {result && result.evidence.length > 0 && (
+                        <small>{result.evidence[0]}</small>
+                      )}
+                    </button>
+                  );
+                })}
+                {list.length > limit && (
+                  <Button
+                    className="load-more"
+                    variant="ghost"
+                    onClick={() => setLimit((value) => value + 24)}
+                  >
+                    더 보기 · {limit} / {list.length}
+                  </Button>
                 )}
-              </section>
-            )}
+              </nav>
+            </>
             <div className="sidebar-bottom">
               <GitBranch size={13} />
               {loading
@@ -2182,7 +1820,7 @@ export function MemoryUniverse() {
           <aside
             className="issue-inspector"
             data-graph-obstruction="adaptive"
-            aria-label="선택 이슈 원문"
+            aria-label="선택 이슈 상세"
           >
             <div className="inspector-title">
               <span>
@@ -2195,13 +1833,71 @@ export function MemoryUniverse() {
                         : colorFor(selected.team),
                   }}
                 />{' '}
-                {shortId(selected.id)}{' '}
-                <span className="revision">r{selected.revision}</span>
+                {shortId(selected.id)}
               </span>
               <button aria-label="이슈 상세 닫기" onClick={resetView}>
                 <X size={17} />
               </button>
             </div>
+            <section
+              className="inspector-overview"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <div className="issue-identity">
+                <div className="issue-status-line">
+                  <span
+                    className={
+                      selected.status === 'open'
+                        ? 'status-open'
+                        : 'status-closed'
+                    }
+                  >
+                    {selected.status === 'open' ? '진행 중' : '처리 완료'}
+                  </span>
+                  <span>{selected.issueType}</span>
+                </div>
+                <h2>{selected.title}</h2>
+                <p className="issue-meta">
+                  {selected.team} · {selected.occurredAt}
+                </p>
+                <p className="issue-glance">{compactText(selected.body)}</p>
+                {selected.id in representativeScenarios && (
+                  <span className="representative-badge">
+                    대표 사례 ·{' '}
+                    {
+                      representativeScenarios[
+                        selected.id as keyof typeof representativeScenarios
+                      ]
+                    }
+                  </span>
+                )}
+                {!!selected.tags.length && (
+                  <div className="issue-tags issue-tags-preview">
+                    {selected.tags.slice(0, 3).map((tag) => (
+                      <span key={tag}>{tag}</span>
+                    ))}
+                    {selected.tags.length > 3 && (
+                      <span>+{selected.tags.length - 3}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              {contextRoot && selected.id !== contextRoot.id && (
+                <div className="inspector-actions">
+                  <Button size="sm" onClick={() => inspectIssue(contextRoot)}>
+                    <RotateCcw /> 기준 이슈로
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => beginContext(selected)}
+                  >
+                    <GitBranch /> 이 이슈로 전환
+                  </Button>
+                </div>
+              )}
+            </section>
             {contextRoot && (
               <section className="inspector-ai-tools" aria-label="AI 이슈 도구">
                 <div className="inspector-ai-heading">
@@ -2257,120 +1953,83 @@ export function MemoryUniverse() {
               </section>
             )}
             <div className="inspector-scroll">
-              <div className="issue-identity">
-                <span
-                  className={
-                    selected.status === 'open' ? 'status-open' : 'status-closed'
-                  }
-                >
-                  {selected.status === 'open' ? '미해결' : '처리 완료'}
-                </span>
-                <span>{selected.issueType}</span>
-                <h2>{selected.title}</h2>
-                <p>
-                  {selected.team} · {selected.occurredAt}
-                </p>
-                {selected.id in representativeScenarios && (
-                  <span className="representative-badge">
-                    대표 사례 ·{' '}
-                    {
-                      representativeScenarios[
-                        selected.id as keyof typeof representativeScenarios
-                      ]
-                    }
-                  </span>
-                )}
-                {selected.synthetic && (
-                  <small>합성 POC 이슈 · 날짜와 처리 이력은 가상입니다.</small>
-                )}
-              </div>
-              <div className="inspector-actions">
-                {contextRoot && selected.id !== contextRoot.id && (
-                  <Button size="sm" onClick={() => inspectIssue(contextRoot)}>
-                    <RotateCcw /> 기준 이슈로 돌아가기
-                  </Button>
-                )}
-                {selected.id !== contextRoot?.id && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => beginContext(selected)}
-                  >
-                    <GitBranch /> 이 이슈를 새 기준으로
-                  </Button>
-                )}
-              </div>
-              <section>
-                <h3>이슈 원문</h3>
-                <p className="original-body">{selected.body}</p>
-              </section>
-              <div className="issue-tags">
-                {selected.tags.map((tag) => (
-                  <span key={tag}>{tag}</span>
-                ))}
-              </div>
               <section className="context-history">
-                <h3>
-                  관련 이슈 흐름 <span>{history?.evidence.length ?? 0}</span>
-                </h3>
-                <p className="caption">
-                  {contextRoot
-                    ? `${shortId(contextRoot.id)}를 처음 기준으로 찾은 완료 이력입니다. 다른 노드를 눌러도 분석 기준은 유지됩니다.`
-                    : '이슈를 선택하면 관련된 완료 이력을 자동으로 찾습니다.'}
-                </p>
+                <div className="context-history-heading">
+                  <h3>
+                    연관 이슈 <span>{history?.evidence.length ?? 0}</span>
+                  </h3>
+                  {contextRoot && selected.id !== contextRoot.id && (
+                    <small>{shortId(contextRoot.id)} 분석 기준 유지</small>
+                  )}
+                </div>
                 {contextBusy && (
+                  <output className="context-loading">
+                    <LoaderCircle className="animate-spin" /> 연관 이슈를 찾는
+                    중…
+                  </output>
+                )}
+                {!contextBusy && !history && (
                   <p className="context-loading">
-                    <LoaderCircle className="animate-spin" /> 관련 이력을
-                    정리하는 중…
+                    노드를 다시 선택하면 연관 이슈를 불러옵니다.
                   </p>
                 )}
                 {!contextBusy && history?.evidence.length === 0 && (
                   <p className="context-loading">
-                    현재 기준에서 연결할 완료 이력을 찾지 못했습니다.
+                    연결된 완료 이력이 없습니다.
                   </p>
                 )}
-                {([1, 2] as const).map((depth) => {
-                  const group =
-                    history?.evidence.filter(
-                      (evidence) => evidence.depth === depth,
-                    ) ?? [];
-                  if (!group.length) return null;
-                  return (
-                    <div className="history-group" key={depth}>
-                      <strong>
-                        {depth === 1
-                          ? '바로 관련된 기록'
-                          : '한 단계 더 연결된 기록'}
-                      </strong>
-                      {group.slice(0, depth === 1 ? 5 : 4).map((evidence) => {
-                        const issue = byId.get(evidence.issueId);
-                        if (!issue) return null;
-                        return (
-                          <button
-                            className={`related-issue ${selected.id === issue.id ? 'is-selected' : ''}`}
-                            key={issue.id}
-                            onClick={() => inspectIssue(issue)}
-                          >
-                            <strong>
-                              {shortId(issue.id)} · {issue.title}
-                            </strong>
-                            <span>
-                              {evidence.sharedResources.length
-                                ? `같은 자료 ${evidence.sharedResources.length}개`
-                                : '내용이 유사한 기록'}
-                              {evidence.timeDistanceDays !== null
-                                ? ` · ${evidence.timeDistanceDays}일 차이`
-                                : ''}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+                <div className="related-list">
+                  {history?.evidence.slice(0, 8).map((evidence) => {
+                    const issue = byId.get(evidence.issueId);
+                    if (!issue) return null;
+                    return (
+                      <button
+                        className={`related-issue ${selected.id === issue.id ? 'is-selected' : ''}`}
+                        key={issue.id}
+                        onClick={() => inspectIssue(issue)}
+                      >
+                        <span className="related-copy">
+                          <small>
+                            {shortId(issue.id)} ·{' '}
+                            {evidence.depth === 1 ? '직접 연결' : '2단계 연결'}
+                          </small>
+                          <strong>{issue.title}</strong>
+                        </span>
+                        <ChevronRight aria-hidden="true" />
+                      </button>
+                    );
+                  })}
+                </div>
+                {(history?.evidence.length ?? 0) > 8 && (
+                  <small className="related-overflow">
+                    외 {(history?.evidence.length ?? 0) - 8}건은 그래프에서 확인
+                  </small>
+                )}
               </section>
-              <details className="inspector-details">
-                <summary>관련 자료와 처리 기록 자세히 보기</summary>
+              <details
+                className="inspector-details"
+                key={`${selected.id}:${selected.status}`}
+              >
+                <summary>
+                  <span>이슈 상세 보기</span>
+                  <small>원문 · 자료 · 처리 기록</small>
+                </summary>
+                <section>
+                  <h3>이슈 원문</h3>
+                  <p className="original-body">{selected.body}</p>
+                  {selected.synthetic && (
+                    <small className="synthetic-note">
+                      합성 POC 이슈 · 날짜와 처리 이력은 가상입니다.
+                    </small>
+                  )}
+                  {!!selected.tags.length && (
+                    <div className="issue-tags">
+                      {selected.tags.map((tag) => (
+                        <span key={tag}>{tag}</span>
+                      ))}
+                    </div>
+                  )}
+                </section>
                 <section>
                   <h3>
                     관련 자료 <span>{selected.resources.length}</span>
@@ -2468,52 +2127,33 @@ export function MemoryUniverse() {
                     </dl>
                   </section>
                 )}
-              </details>
-              {selected.source && (
-                <details className="external-example">
-                  <summary>
-                    외부 원본 · {selected.source.platform}
-                    {selected.source.number
-                      ? ` #${selected.source.number}`
-                      : ''}
-                  </summary>
-                  <p>
-                    이 이슈는 웹에서 독립적으로 처리합니다. 아래 원본은 단방향
-                    스냅샷으로 연결되며 Websidian의 처리 기록이 원본을 덮어쓰지
-                    않습니다.
-                  </p>
-                  <a
-                    className="source-link"
-                    href={selected.source.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    원본 {selected.source.platform} 이슈 열기{' '}
-                    <ArrowUpRight size={14} />
-                  </a>
-                </details>
-              )}
-              {selected.id !== contextRoot?.id && (
-                <button
-                  className="reroot-button"
-                  onClick={() => beginContext(selected)}
-                >
-                  이 이슈를 새 분석 기준으로 <GitBranch size={14} />
-                </button>
-              )}
-            </div>
-            <div className="inspector-bottom">
-              {selected.status === 'open' ? (
-                <Button className="w-full" onClick={() => setForm('resolve')}>
-                  <Check />
-                  처리 완료
-                </Button>
-              ) : (
-                <div className="memory-artifact-status">
-                  <p>
-                    원문 보존 · 처리 기록 포함 탐색 가능
-                    <br />
-                    <span>
+                {selected.source && (
+                  <section className="external-example">
+                    <h3>
+                      외부 원본 · {selected.source.platform}
+                      {selected.source.number
+                        ? ` #${selected.source.number}`
+                        : ''}
+                    </h3>
+                    <p>
+                      외부 원본은 단방향 스냅샷이며 Websidian의 처리 기록이
+                      원본을 덮어쓰지 않습니다.
+                    </p>
+                    <a
+                      className="source-link"
+                      href={selected.source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      원본 {selected.source.platform} 이슈 열기{' '}
+                      <ArrowUpRight size={14} />
+                    </a>
+                  </section>
+                )}
+                {selected.status === 'closed' && (
+                  <section className="memory-detail-status">
+                    <h3>기억 노드 상태</h3>
+                    <p>
                       {selectedArtifact?.compileStatus === 'ready'
                         ? selectedArtifact.compileModel === 'source-fallback'
                           ? `원문 기반 기억 생성 완료 · ${selectedArtifact.embeddingStatus === 'ready' ? '의미 연결 완료' : '벡터 재시도 필요'} · AI 보강 재시도 가능`
@@ -2523,42 +2163,59 @@ export function MemoryUniverse() {
                           : selected.memory
                             ? `추출 색인 보유 · 참고한 기억 ${selected.memory.relatedIssueIds.length}건`
                             : '완료 기억 · 원문/자료 검색 가능'}
-                    </span>
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={compilingIds.has(selected.id)}
-                    onClick={() => void compileMemory(selected.id)}
-                  >
-                    {compilingIds.has(selected.id) ? (
-                      <LoaderCircle className="animate-spin" />
-                    ) : (
-                      <Network />
-                    )}
-                    {compilingIds.has(selected.id)
-                      ? 'AI 기억을 생성하는 중…'
-                      : selectedArtifact?.compileModel === 'source-fallback'
-                        ? 'AI 보강 재시도'
-                        : selectedArtifact?.compileStatus === 'ready'
-                          ? 'AI 기억 갱신'
-                          : 'AI 기억 생성'}
-                  </Button>
-                  {selected.id in representativeScenarios && (
+                    </p>
+                  </section>
+                )}
+              </details>
+            </div>
+            <div className="inspector-bottom">
+              {selected.status === 'open' ? (
+                <Button className="w-full" onClick={() => setForm('resolve')}>
+                  <Check />
+                  처리 완료
+                </Button>
+              ) : (
+                <div className="memory-artifact-status">
+                  <span className="memory-state">
+                    <Network />
+                    {selectedArtifact?.embeddingStatus === 'ready'
+                      ? '기억 연결 완료'
+                      : '완료 기억 저장됨'}
+                  </span>
+                  <div className="memory-actions">
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={demoResetBusy}
-                      onClick={() => void resetRepresentativeIssue()}
+                      disabled={compilingIds.has(selected.id)}
+                      onClick={() => void compileMemory(selected.id)}
                     >
-                      {demoResetBusy ? (
+                      {compilingIds.has(selected.id) ? (
                         <LoaderCircle className="animate-spin" />
                       ) : (
-                        <RotateCcw />
+                        <Network />
                       )}
-                      대표 이슈 다시 열기
+                      {compilingIds.has(selected.id)
+                        ? '생성 중…'
+                        : selectedArtifact?.compileStatus === 'ready'
+                          ? '기억 갱신'
+                          : '기억 생성'}
                     </Button>
-                  )}
+                    {selected.id in representativeScenarios && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={demoResetBusy}
+                        onClick={() => void resetRepresentativeIssue()}
+                      >
+                        {demoResetBusy ? (
+                          <LoaderCircle className="animate-spin" />
+                        ) : (
+                          <RotateCcw />
+                        )}
+                        다시 열기
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

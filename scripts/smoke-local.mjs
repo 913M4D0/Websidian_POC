@@ -314,16 +314,6 @@ try {
       ].some((body) => body?.includes(evidence.summary)),
     );
   }
-  const beforeBrief = JSON.stringify((await call('/api/issues')).data.issues);
-  const brief = await call('/api/brief', {
-    query: '동시 요청 처리 기록',
-    pinnedIds: [id],
-  });
-  assert.equal(brief.status, 503, JSON.stringify(brief.data));
-  assert.equal(
-    JSON.stringify((await call('/api/issues')).data.issues),
-    beforeBrief,
-  );
   assert.equal((await call('/api/search', { query: '' })).status, 400);
   assert.equal(
     (await call('/api/search', { query: 'x'.repeat(66000) })).status,
@@ -345,8 +335,7 @@ try {
       memory: 'extractive-v1 / sourceRevision 3; source preserved',
       concurrentStatuses: [200, 409],
       search: 'completed memories only; immutable source',
-      history: 'closed-only source excerpts; invalid pins rejected',
-      unconfiguredBrief: '503; no writes',
+      history: 'closed-only source excerpts',
       anonymousAndSpoofed: 401,
       crossOrigin: 403,
       oversize: 413,

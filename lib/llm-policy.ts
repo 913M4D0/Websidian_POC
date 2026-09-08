@@ -11,7 +11,6 @@ export const llmPolicy = {
   generation: {
     analysis: { effort: 'medium', maxTokens: 6_000, timeoutMs: 60_000 },
     testCases: { effort: 'medium', maxTokens: 8_000, timeoutMs: 75_000 },
-    brief: { effort: 'medium', maxTokens: 6_000, timeoutMs: 60_000 },
     memory: { effort: 'medium', maxTokens: 3_000, timeoutMs: 45_000 },
   },
   retrieval: 'rank-without-taxonomy-gates',

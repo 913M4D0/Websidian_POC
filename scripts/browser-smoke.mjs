@@ -52,25 +52,15 @@ try {
         .querySelector('.graph-viewport')
         ?.getAttribute('data-active-node') === 'active:WS-024',
   );
-  await page
-    .locator('.inspector-actions')
-    .getByRole('button', { name: '과거 기록 탐색', exact: true })
-    .click();
-  await page.getByRole('button', { name: /수집된 근거 .*건 확인/ }).click();
-  await page.waitForSelector('.history-evidence');
+  await page.waitForSelector('.related-issue');
   assert.ok(
-    await page
-      .locator('.history-evidence')
-      .filter({ hasText: 'WS-021' })
-      .count(),
+    await page.locator('.related-issue').filter({ hasText: 'WS-021' }).count(),
   );
-  await page.screenshot({ path: join(dir, 'standalone-history.png') });
   assert.equal(
-    await page
-      .getByRole('button', { name: 'AI History Brief 생성', exact: true })
-      .isDisabled(),
-    true,
+    await page.locator('.inspector-details').getAttribute('open'),
+    null,
   );
+  await page.screenshot({ path: join(dir, 'standalone-related.png') });
   if (!process.argv.includes('--inspect')) {
     createdTitle = `[QA BROWSER] 웹 자체 이슈 ${crypto.randomUUID()}`;
     await page.getByRole('button', { name: '이슈 등록', exact: true }).click();
@@ -96,6 +86,7 @@ try {
           ?.getAttribute('data-active-node') === `active:${id}`,
       qaId,
     );
+    await page.getByText('이슈 상세 보기', { exact: true }).click();
     await page
       .getByLabel('확인한 내용 · 진행 기록', { exact: true })
       .fill('일자 경계 자료를 확인했고 추가 검증 중입니다.');
@@ -107,12 +98,6 @@ try {
         exact: true,
       })
       .waitFor();
-    await page
-      .locator('.inspector-actions')
-      .getByRole('button', { name: '과거 기록 탐색', exact: true })
-      .click();
-    await page.getByRole('button', { name: /수집된 근거 .*건 확인/ }).click();
-    await page.locator('.evidence-pin').first().click();
     await page
       .getByRole('button', { name: '처리 완료 · 기억으로 전환', exact: true })
       .click();
@@ -148,7 +133,7 @@ try {
     assert.equal(completed.revision, 3);
     assert.equal(completed.title, createdTitle);
     assert.equal(completed.memory.method, 'extractive-v1');
-    assert.equal(completed.memory.relatedIssueIds.length, 1);
+    assert.ok(completed.memory.relatedIssueIds.length >= 1);
     await page.screenshot({ path: join(dir, 'standalone-completed.png') });
     await page.reload();
     await page.waitForSelector('.issue-row');
@@ -157,6 +142,7 @@ try {
       .getByPlaceholder('제목 · 이슈 번호 · 담당 팀 검색')
       .fill(createdTitle);
     await page.locator('.issue-row').first().click();
+    await page.getByText('이슈 상세 보기', { exact: true }).click();
     await page.getByText('기존 정책 안내 후 종료', { exact: true }).waitFor();
   }
   await page.setViewportSize({ width: 390, height: 844 });
@@ -166,12 +152,16 @@ try {
   await page.getByRole('button', { name: /신규 이슈/ }).click();
   await page.getByPlaceholder('제목 · 이슈 번호 · 담당 팀 검색').fill('WS-024');
   await page.locator('.issue-row').first().click();
-  await page
-    .locator('.inspector-actions')
-    .getByRole('button', { name: '과거 기록 탐색', exact: true })
-    .click();
-  await page.getByRole('button', { name: /수집된 근거 .*건 확인/ }).click();
-  assert.equal(await page.locator('.brief-workspace').isVisible(), true);
+  await page.waitForSelector('.related-issue');
+  assert.equal(await page.locator('.inspector-overview').isVisible(), true);
+  assert.equal(
+    await page.getByRole('button', { name: /이슈 분석/ }).isVisible(),
+    true,
+  );
+  assert.equal(
+    await page.getByRole('button', { name: /테스트 케이스/ }).isVisible(),
+    true,
+  );
   await page.screenshot({ path: join(dir, 'standalone-mobile.png') });
   const dimensions = await page.evaluate(() => ({
     viewport: innerWidth,

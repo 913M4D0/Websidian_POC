@@ -1,12 +1,9 @@
 import { env } from 'cloudflare:workers';
 import {
   BriefError,
-  buildOpenRouterRequest,
   verifyRequestedModel,
-  type BriefResponse,
   type LlmStatus,
   type VerifiedModel,
-  type buildBriefContext,
 } from './brief-contract.ts';
 import { llmPolicy } from './llm-policy.ts';
 import type { Issue } from './issues.ts';
@@ -21,7 +18,6 @@ import {
   type IssueTestPlanResponse,
 } from './issue-insight.ts';
 import {
-  parseDelimitedBrief,
   parseDelimitedDisplay,
   parseDelimitedIssueAnalysis,
   parseDelimitedIssueTestPlan,
@@ -180,7 +176,7 @@ export async function getLlmStatus(): Promise<LlmStatus> {
 /** Durable request reservations, atomic across Worker isolates; failures consume a slot too. */
 async function reserveCall(
   actor: string,
-  lane: 'analysis' | 'test-cases' | 'brief' | 'memory',
+  lane: 'analysis' | 'test-cases' | 'memory',
 ) {
   const db = configuration().DB;
   if (!db)
@@ -387,38 +383,6 @@ function sourceInsightFallback(
   };
 }
 
-function sourceBriefFallback(
-  context: ReturnType<typeof buildBriefContext>,
-  reason: string,
-): BriefResponse {
-  const evidenceIds = context.sources.map((source) => source.issueId);
-  const findings = context.sources
-    .slice(0, 3)
-    .map(
-      (source) =>
-        `<<확인사항>>\n<<제목>>${safeLine(source.title)}\n<<구분>>사실\n<<근거>>${source.issueId}\n<<내용>>${safeLine(source.resolution.outcome)} · ${safeLine(source.resolution.bodyExcerpt, 520)}`,
-    )
-    .join('\n');
-  const content = [
-    '<<요약>>',
-    '실시간 AI 보강을 완료하지 못해 선택한 이슈 원문과 처리 결과를 그대로 정리했습니다.',
-    findings,
-    '<<다음행동>>',
-    '현재 이슈와 각 근거 이슈의 적용 범위 및 변경 자료를 직접 확인하세요.',
-    '<<끝>>',
-  ].join('\n');
-  return {
-    brief: parseDelimitedBrief(content, evidenceIds),
-    content,
-    evidenceIds,
-    modelId: llmPolicy.modelId,
-    reasoning: 'source-only',
-    generatedAt: new Date().toISOString(),
-    engine: 'source-fallback',
-    warning: `${reason} 원문 기반 안전 결과를 표시합니다.`,
-  };
-}
-
 async function generateIssueInsight(
   actor: string,
   context: IssueInsightContext,
@@ -600,137 +564,6 @@ export async function generateIssueTestCases(
       'test-cases',
       reason,
     ) as IssueTestPlanResponse;
-    hooks.onDelta?.(fallback.content);
-    return fallback;
-  }
-}
-
-async function generateBriefWithProvider(
-  actor: string,
-  context: ReturnType<typeof buildBriefContext>,
-  hooks: GenerationHooks = {},
-): Promise<BriefResponse> {
-  throwIfGenerationAborted(hooks.signal);
-  const status = await getLlmStatus();
-  throwIfGenerationAborted(hooks.signal);
-  if (!status.ready) throw new BriefError(status.reason, 503);
-  const lockKey = `${actor}:brief`;
-  if (inFlight.has(lockKey))
-    throw new BriefError('이미 AI Brief를 생성 중입니다.', 429);
-  const apiKey = configuration().OPENROUTER_API_KEY;
-  if (!apiKey?.trim()) throw new BriefError('AI 서버 설정이 필요합니다.', 503);
-  inFlight.add(lockKey);
-  const startedAt = Date.now();
-  try {
-    const model = await verifiedModel();
-    throwIfGenerationAborted(hooks.signal);
-    await reserveCall(actor, 'brief');
-    throwIfGenerationAborted(hooks.signal);
-    const response = await fetchGeneration(
-      'brief',
-      startedAt,
-      'https://openrouter.ai/api/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey.trim()}`,
-          'Content-Type': 'application/json',
-          'X-OpenRouter-Title': 'Websidian issue history',
-          'X-OpenRouter-Metadata': 'enabled',
-        },
-        body: JSON.stringify(buildOpenRouterRequest(model, context)),
-        signal: generationSignal(
-          llmPolicy.generation.brief.timeoutMs,
-          hooks.signal,
-        ),
-        redirect: 'manual',
-      },
-    );
-    if (!response.ok) {
-      logProviderFailure('brief', 'provider-http', startedAt, {
-        upstreamStatus: response.status,
-        providerRequestId: providerRequestId(response),
-      });
-      await response.body?.cancel();
-      if (response.status === 429)
-        throw new BriefError(
-          'AI 제공자의 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.',
-          429,
-        );
-      if ([401, 402, 403].includes(response.status))
-        throw new BriefError(
-          'AI 제공자의 키 권한·잔액·모델 접근 설정을 확인해 주세요.',
-          503,
-        );
-      throw new BriefError(
-        'AI 제공자가 생성 요청을 완료하지 못했습니다. 원문 근거는 유지됩니다.',
-        502,
-      );
-    }
-    const streamed = await readOpenRouterTextStream(
-      response,
-      512_000,
-      hooks.onDelta,
-    );
-    const warning = streamWarning(streamed);
-    if (warning)
-      logProviderFailure('brief', 'stream-partial', startedAt, {
-        finishReason: streamed.finishReason,
-        completed: streamed.completed,
-        providerError: streamed.providerError,
-        receivedChars: streamed.text.length,
-        providerRequestId: providerRequestId(response),
-      });
-    const evidenceIds = context.sources.map((source) => source.issueId);
-    return {
-      brief: parseDelimitedBrief(streamed.text, evidenceIds),
-      content: streamed.text,
-      evidenceIds,
-      modelId: model.id,
-      reasoning: llmPolicy.generation.brief.effort,
-      generatedAt: new Date().toISOString(),
-      engine: 'openrouter',
-      ...(warning ? { warning } : {}),
-    };
-  } catch (error) {
-    if (hooks.signal?.aborted) throw error;
-    if (error instanceof BriefError) throw error;
-    // Never log provider response bodies, submitted issue content or secret-bearing errors.
-    if (
-      error instanceof Error &&
-      ['AbortError', 'TimeoutError'].includes(error.name)
-    )
-      throw new BriefError(
-        `AI 생성이 ${Math.round(llmPolicy.generation.brief.timeoutMs / 1000)}초 안에 완료되지 않았습니다.`,
-        504,
-      );
-    throw new BriefError(
-      'AI 연결에 실패했습니다. 원문 기반 히스토리 탐색을 이용해 주세요.',
-      503,
-    );
-  } finally {
-    inFlight.delete(lockKey);
-  }
-}
-
-export async function generateBrief(
-  actor: string,
-  context: ReturnType<typeof buildBriefContext>,
-  hooks: GenerationHooks = {},
-): Promise<BriefResponse> {
-  try {
-    return await generateBriefWithProvider(actor, context, hooks);
-  } catch (error) {
-    if (hooks.signal?.aborted) throw error;
-    const reason =
-      error instanceof BriefError
-        ? error.message
-        : 'AI 서비스 연결에 실패했습니다.';
-    console.warn('Websidian AI source fallback', {
-      operation: 'brief',
-      status: error instanceof BriefError ? error.status : 503,
-    });
-    const fallback = sourceBriefFallback(context, reason);
     hooks.onDelta?.(fallback.content);
     return fallback;
   }
