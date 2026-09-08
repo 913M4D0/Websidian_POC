@@ -918,6 +918,191 @@ function InsightDialog({
   );
 }
 
+function IssueDetailsDialog({
+  issue,
+  artifact,
+  progressText,
+  progressBusy,
+  onProgressText,
+  onSaveProgress,
+  onClose,
+}: {
+  issue: Issue;
+  artifact?: MemoryArtifactClient;
+  progressText: string;
+  progressBusy: boolean;
+  onProgressText: (value: string) => void;
+  onSaveProgress: () => Promise<void>;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !progressBusy) onClose();
+      }}
+    >
+      <DialogContent
+        className="issue-detail-dialog sm:max-w-[680px]"
+        showCloseButton={!progressBusy}
+      >
+        <DialogHeader>
+          <DialogTitle className="issue-detail-dialog-title">
+            <FileText /> {shortId(issue.id)} 상세 내용
+          </DialogTitle>
+          <DialogDescription>{issue.title}</DialogDescription>
+        </DialogHeader>
+        <div className="issue-detail-dialog-scroll">
+          <section className="issue-detail-dialog-section">
+            <h3>이슈 원문</h3>
+            <p className="original-body">{issue.body}</p>
+            {issue.synthetic && (
+              <small className="synthetic-note">
+                합성 POC 이슈 · 날짜와 처리 이력은 가상입니다.
+              </small>
+            )}
+            {!!issue.tags.length && (
+              <div className="issue-tags">
+                {issue.tags.map((tag) => (
+                  <span key={tag}>{tag}</span>
+                ))}
+              </div>
+            )}
+          </section>
+          <section className="issue-detail-dialog-section">
+            <h3>
+              관련 자료 <span>{issue.resources.length}</span>
+            </h3>
+            {issue.resources.length ? (
+              issue.resources.map((resource) => (
+                <div className="resource-row" key={resource.key}>
+                  <FileText size={14} />
+                  <div>
+                    <strong>{resource.label}</strong>
+                    <code>{resource.key}</code>
+                    <small>
+                      {resource.kind}
+                      {issue.synthetic ? ' · 합성 참조' : ''}
+                    </small>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="issue-detail-empty">등록된 관련 자료가 없습니다.</p>
+            )}
+          </section>
+          <section className="issue-detail-dialog-section">
+            <h3>처리 기록</h3>
+            <ol className="activity-list">
+              {issue.activities.map((activity) => (
+                <li key={activity.id}>
+                  <span>
+                    {activity.at.slice(0, 10)} · {activity.author}
+                  </span>
+                  <p>{activity.body}</p>
+                </li>
+              ))}
+            </ol>
+            {issue.status === 'open' && (
+              <form
+                className="progress-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void onSaveProgress();
+                }}
+              >
+                <label htmlFor="progress-note">확인한 내용 · 진행 기록</label>
+                <Textarea
+                  id="progress-note"
+                  value={progressText}
+                  onChange={(event) => onProgressText(event.target.value)}
+                  maxLength={20000}
+                  rows={3}
+                  placeholder="조사한 내용, 담당자 협의, 검증 결과를 남기세요."
+                  disabled={progressBusy}
+                />
+                <Button
+                  size="sm"
+                  type="submit"
+                  variant="outline"
+                  disabled={progressBusy || !progressText.trim()}
+                >
+                  {progressBusy ? (
+                    <LoaderCircle className="animate-spin" />
+                  ) : (
+                    <Plus />
+                  )}{' '}
+                  진행 기록 저장
+                </Button>
+              </form>
+            )}
+            {issue.resolution && (
+              <div className="resolution-box">
+                <span>
+                  <Check size={13} />
+                  처리 결과 · {issue.resolution.at.slice(0, 10)}
+                </span>
+                <p>{issue.resolution.body}</p>
+                <strong>{issue.resolution.outcome}</strong>
+              </div>
+            )}
+          </section>
+          {Object.keys(issue.attributes).length > 0 && (
+            <section className="issue-detail-dialog-section">
+              <h3>추가 속성</h3>
+              <dl className="attribute-list">
+                {Object.entries(issue.attributes).map(([key, value]) => (
+                  <div key={key}>
+                    <dt>{key}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
+          {issue.source && (
+            <section className="issue-detail-dialog-section external-example">
+              <h3>
+                외부 원본 · {issue.source.platform}
+                {issue.source.number ? ` #${issue.source.number}` : ''}
+              </h3>
+              <p>
+                외부 원본은 단방향 스냅샷이며 Websidian의 처리 기록이 원본을
+                덮어쓰지 않습니다.
+              </p>
+              <a
+                className="source-link"
+                href={issue.source.url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                원본 {issue.source.platform} 이슈 열기{' '}
+                <ArrowUpRight size={14} />
+              </a>
+            </section>
+          )}
+          {issue.status === 'closed' && (
+            <section className="issue-detail-dialog-section memory-detail-status">
+              <h3>기억 노드 상태</h3>
+              <p>
+                {artifact?.compileStatus === 'ready'
+                  ? artifact.compileModel === 'source-fallback'
+                    ? `원문 기반 기억 생성 완료 · ${artifact.embeddingStatus === 'ready' ? '의미 연결 완료' : '벡터 재시도 필요'} · AI 보강 재시도 가능`
+                    : `AI 기억 컴파일 완료 · ${artifact.embeddingStatus === 'ready' ? '의미 연결 완료' : '벡터 재시도 필요'}`
+                  : artifact?.compileStatus === 'failed'
+                    ? 'AI 기억 생성 실패 · 원문과 완료 상태는 보존됨'
+                    : issue.memory
+                      ? `추출 색인 보유 · 참고한 기억 ${issue.memory.relatedIssueIds.length}건`
+                      : '완료 기억 · 원문/자료 검색 가능'}
+              </p>
+            </section>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function MemoryUniverse() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [artifacts, setArtifacts] = useState<MemoryArtifactClient[]>([]);
@@ -926,6 +1111,7 @@ export function MemoryUniverse() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [gravityRootId, setGravityRootId] = useState<string | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [resetVersion, setResetVersion] = useState(0);
@@ -991,6 +1177,7 @@ export function MemoryUniverse() {
       setGraphReady(false);
       setGraphError(false);
       setSelectedId(null);
+      setDetailsOpen(false);
       setGravityRootId(null);
       setContextRootId(null);
       setHistory(null);
@@ -1117,6 +1304,7 @@ export function MemoryUniverse() {
     }
   }
   function inspectIssue(issue: Issue) {
+    setDetailsOpen(false);
     setSelectedId(issue.id);
     setProgressText('');
     setFocusVersion((value) => value + 1);
@@ -1124,6 +1312,7 @@ export function MemoryUniverse() {
   }
   function beginContext(issue: Issue) {
     contextSequence.current++;
+    setDetailsOpen(false);
     setContextRootId(issue.id);
     setSelectedId(issue.id);
     setGravityRootId(issueNodeId(issue));
@@ -1139,6 +1328,7 @@ export function MemoryUniverse() {
   }
   const select = (node: MemoryNode | null) => {
     if (!node) {
+      setDetailsOpen(false);
       setSelectedId(null);
       setGravityRootId(null);
       setContextRootId(null);
@@ -1153,6 +1343,7 @@ export function MemoryUniverse() {
   const selectIssue = (issue: Issue) => beginContext(issue);
   function resetView() {
     contextSequence.current++;
+    setDetailsOpen(false);
     setSelectedId(null);
     setGravityRootId(null);
     setResetVersion((value) => value + 1);
@@ -1184,6 +1375,7 @@ export function MemoryUniverse() {
   }
   function saved(issue: Issue) {
     searchSequence.current += 1;
+    setDetailsOpen(false);
     setSearching(false);
     setIssues((current) =>
       current.some((item) => item.id === issue.id)
@@ -1862,6 +2054,19 @@ export function MemoryUniverse() {
                   {selected.team} · {selected.occurredAt}
                 </p>
                 <p className="issue-glance">{compactText(selected.body)}</p>
+                <button
+                  type="button"
+                  className="issue-detail-trigger"
+                  aria-haspopup="dialog"
+                  onClick={() => setDetailsOpen(true)}
+                >
+                  <FileText aria-hidden="true" />
+                  <span>
+                    <strong>상세 내용</strong>
+                    <small>원문 · 자료 · 처리 기록</small>
+                  </span>
+                  <ChevronRight aria-hidden="true" />
+                </button>
                 {selected.id in representativeScenarios && (
                   <span className="representative-badge">
                     대표 사례 ·{' '}
@@ -2006,167 +2211,6 @@ export function MemoryUniverse() {
                   </small>
                 )}
               </section>
-              <details
-                className="inspector-details"
-                key={`${selected.id}:${selected.status}`}
-              >
-                <summary>
-                  <span>이슈 상세 보기</span>
-                  <small>원문 · 자료 · 처리 기록</small>
-                </summary>
-                <section>
-                  <h3>이슈 원문</h3>
-                  <p className="original-body">{selected.body}</p>
-                  {selected.synthetic && (
-                    <small className="synthetic-note">
-                      합성 POC 이슈 · 날짜와 처리 이력은 가상입니다.
-                    </small>
-                  )}
-                  {!!selected.tags.length && (
-                    <div className="issue-tags">
-                      {selected.tags.map((tag) => (
-                        <span key={tag}>{tag}</span>
-                      ))}
-                    </div>
-                  )}
-                </section>
-                <section>
-                  <h3>
-                    관련 자료 <span>{selected.resources.length}</span>
-                  </h3>
-                  {selected.resources.length ? (
-                    selected.resources.map((resource) => (
-                      <div className="resource-row" key={resource.key}>
-                        <FileText size={14} />
-                        <div>
-                          <strong>{resource.label}</strong>
-                          <code>{resource.key}</code>
-                          <small>
-                            {resource.kind}
-                            {selected.synthetic ? ' · 합성 참조' : ''}
-                          </small>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p>등록된 관련 자료가 없습니다.</p>
-                  )}
-                </section>
-                <section>
-                  <h3>처리 기록</h3>
-                  <ol className="activity-list">
-                    {selected.activities.map((activity) => (
-                      <li key={activity.id}>
-                        <span>
-                          {activity.at.slice(0, 10)} · {activity.author}
-                        </span>
-                        <p>{activity.body}</p>
-                      </li>
-                    ))}
-                  </ol>
-                  {selected.status === 'open' && (
-                    <form
-                      className="progress-form"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void saveProgress();
-                      }}
-                    >
-                      <label htmlFor="progress-note">
-                        확인한 내용 · 진행 기록
-                      </label>
-                      <Textarea
-                        id="progress-note"
-                        value={progressText}
-                        onChange={(event) =>
-                          setProgressText(event.target.value)
-                        }
-                        maxLength={20000}
-                        rows={3}
-                        placeholder="조사한 내용, 담당자 협의, 검증 결과를 남기세요."
-                        disabled={progressBusy}
-                      />
-                      <Button
-                        size="sm"
-                        type="submit"
-                        variant="outline"
-                        disabled={progressBusy || !progressText.trim()}
-                      >
-                        {progressBusy ? (
-                          <LoaderCircle className="animate-spin" />
-                        ) : (
-                          <Plus />
-                        )}{' '}
-                        진행 기록 저장
-                      </Button>
-                    </form>
-                  )}
-                  {selected.resolution && (
-                    <div className="resolution-box">
-                      <span>
-                        <Check size={13} />
-                        처리 결과 · {selected.resolution.at.slice(0, 10)}
-                      </span>
-                      <p>{selected.resolution.body}</p>
-                      <strong>{selected.resolution.outcome}</strong>
-                    </div>
-                  )}
-                </section>
-                {Object.keys(selected.attributes).length > 0 && (
-                  <section>
-                    <h3>추가 속성</h3>
-                    <dl className="attribute-list">
-                      {Object.entries(selected.attributes).map(
-                        ([key, value]) => (
-                          <div key={key}>
-                            <dt>{key}</dt>
-                            <dd>{value}</dd>
-                          </div>
-                        ),
-                      )}
-                    </dl>
-                  </section>
-                )}
-                {selected.source && (
-                  <section className="external-example">
-                    <h3>
-                      외부 원본 · {selected.source.platform}
-                      {selected.source.number
-                        ? ` #${selected.source.number}`
-                        : ''}
-                    </h3>
-                    <p>
-                      외부 원본은 단방향 스냅샷이며 Websidian의 처리 기록이
-                      원본을 덮어쓰지 않습니다.
-                    </p>
-                    <a
-                      className="source-link"
-                      href={selected.source.url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      원본 {selected.source.platform} 이슈 열기{' '}
-                      <ArrowUpRight size={14} />
-                    </a>
-                  </section>
-                )}
-                {selected.status === 'closed' && (
-                  <section className="memory-detail-status">
-                    <h3>기억 노드 상태</h3>
-                    <p>
-                      {selectedArtifact?.compileStatus === 'ready'
-                        ? selectedArtifact.compileModel === 'source-fallback'
-                          ? `원문 기반 기억 생성 완료 · ${selectedArtifact.embeddingStatus === 'ready' ? '의미 연결 완료' : '벡터 재시도 필요'} · AI 보강 재시도 가능`
-                          : `AI 기억 컴파일 완료 · ${selectedArtifact.embeddingStatus === 'ready' ? '의미 연결 완료' : '벡터 재시도 필요'}`
-                        : selectedArtifact?.compileStatus === 'failed'
-                          ? 'AI 기억 생성 실패 · 원문과 완료 상태는 보존됨'
-                          : selected.memory
-                            ? `추출 색인 보유 · 참고한 기억 ${selected.memory.relatedIssueIds.length}건`
-                            : '완료 기억 · 원문/자료 검색 가능'}
-                    </p>
-                  </section>
-                )}
-              </details>
             </div>
             <div className="inspector-bottom">
               {selected.status === 'open' ? (
@@ -2235,6 +2279,18 @@ export function MemoryUniverse() {
               : '원문 탐색 사용 가능 · AI 키 설정 필요'}
         </span>
       </footer>
+      {detailsOpen && selected && (
+        <IssueDetailsDialog
+          key={`${selected.id}:${selected.status}`}
+          issue={selected}
+          artifact={selectedArtifact}
+          progressText={progressText}
+          progressBusy={progressBusy}
+          onProgressText={setProgressText}
+          onSaveProgress={saveProgress}
+          onClose={() => setDetailsOpen(false)}
+        />
+      )}
       {integrationOpen && (
         <IntegrationDialog
           index={memoryIndex}

@@ -56,9 +56,10 @@ try {
   assert.ok(
     await page.locator('.related-issue').filter({ hasText: 'WS-021' }).count(),
   );
+  assert.equal(await page.locator('.issue-detail-dialog').count(), 0);
   assert.equal(
-    await page.locator('.inspector-details').getAttribute('open'),
-    null,
+    await page.getByRole('button', { name: /^상세 내용/ }).isVisible(),
+    true,
   );
   await page.screenshot({ path: join(dir, 'standalone-related.png') });
   if (!process.argv.includes('--inspect')) {
@@ -86,7 +87,7 @@ try {
           ?.getAttribute('data-active-node') === `active:${id}`,
       qaId,
     );
-    await page.getByText('이슈 상세 보기', { exact: true }).click();
+    await page.getByRole('button', { name: /^상세 내용/ }).click();
     await page
       .getByLabel('확인한 내용 · 진행 기록', { exact: true })
       .fill('일자 경계 자료를 확인했고 추가 검증 중입니다.');
@@ -98,9 +99,8 @@ try {
         exact: true,
       })
       .waitFor();
-    await page
-      .getByRole('button', { name: '처리 완료 · 기억으로 전환', exact: true })
-      .click();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '처리 완료', exact: true }).click();
     await page
       .getByLabel('처리 내용', { exact: true })
       .fill(
@@ -142,8 +142,9 @@ try {
       .getByPlaceholder('제목 · 이슈 번호 · 담당 팀 검색')
       .fill(createdTitle);
     await page.locator('.issue-row').first().click();
-    await page.getByText('이슈 상세 보기', { exact: true }).click();
+    await page.getByRole('button', { name: /^상세 내용/ }).click();
     await page.getByText('기존 정책 안내 후 종료', { exact: true }).waitFor();
+    await page.keyboard.press('Escape');
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page
@@ -154,6 +155,10 @@ try {
   await page.locator('.issue-row').first().click();
   await page.waitForSelector('.related-issue');
   assert.equal(await page.locator('.inspector-overview').isVisible(), true);
+  assert.equal(
+    await page.getByRole('button', { name: /^상세 내용/ }).isVisible(),
+    true,
+  );
   assert.equal(
     await page.getByRole('button', { name: /이슈 분석/ }).isVisible(),
     true,

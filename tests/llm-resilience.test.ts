@@ -832,14 +832,30 @@ void test('selected issues use progressive disclosure and the History Brief path
     'utf8',
   );
   const overview = source.indexOf('className="inspector-overview"');
+  const glance = source.indexOf('className="issue-glance"', overview);
+  const detailTrigger = source.indexOf(
+    'className="issue-detail-trigger"',
+    glance,
+  );
   const aiTools = source.indexOf('className="inspector-ai-tools"');
-  const disclosure = source.indexOf('className="inspector-details"');
-  const fullBody = source.indexOf('className="original-body"', disclosure);
+  const detailDialog = source.indexOf('className="issue-detail-dialog');
+  const fullBody = source.indexOf('className="original-body"', detailDialog);
 
-  assert.ok(overview >= 0 && overview < aiTools);
-  assert.ok(disclosure > aiTools && fullBody > disclosure);
+  assert.ok(
+    overview >= 0 &&
+      glance > overview &&
+      detailTrigger > glance &&
+      detailTrigger < aiTools,
+  );
+  assert.ok(detailDialog >= 0 && fullBody > detailDialog);
   assert.match(source, /compactText\(selected\.body\)/);
-  assert.match(source, /key=\{`\$\{selected\.id\}:\$\{selected\.status\}`\}/);
+  assert.match(source, /onClick=\{\(\) => setDetailsOpen\(true\)\}/);
+  assert.match(
+    source,
+    /<IssueDetailsDialog[\s\S]*key=\{`\$\{selected\.id\}:\$\{selected\.status\}`\}/,
+  );
+  assert.doesNotMatch(source, /className="inspector-details"/);
+  assert.doesNotMatch(source, /<span>이슈 상세 보기<\/span>/);
   assert.match(source, /history\?\.evidence\.slice\(0, 8\)\.map/);
   assert.match(source, /onClick=\{\(\) => inspectIssue\(issue\)\}/);
   assert.match(source, /<small>\{shortId\(contextRoot\.id\)\} 기준<\/small>/);
@@ -849,6 +865,8 @@ void test('selected issues use progressive disclosure and the History Brief path
     css,
     /\.issue-inspector \.related-issue \{[\s\S]*min-height: 50px/,
   );
+  assert.match(css, /\.issue-detail-trigger \{[\s\S]*min-height: 46px/);
+  assert.match(css, /\.issue-detail-dialog-scroll \{[\s\S]*overflow-y: auto/);
   assert.equal(
     existsSync(new URL('../app/api/brief/route.ts', import.meta.url)),
     false,
