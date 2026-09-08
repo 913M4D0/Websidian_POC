@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   parseDelimitedDisplay,
   parseDelimitedDisplayProgress,
+  parseDelimitedDisplaySegments,
   parseDelimitedIssueAnalysis,
   parseDelimitedIssueTestPlan,
   parseDelimitedMemory,
@@ -288,6 +289,225 @@ void test('incomplete or malformed delimiter output falls back without alteratio
     ),
     null,
   );
+});
+
+void test('customer display keeps valid cards and preserves only malformed fragments as raw text', () => {
+  const content = [
+    '<<요약>>',
+    '앞부분은 정상입니다.',
+    '<<알수없는구획>>',
+    '이 조각은 원문이어야 합니다.',
+    '<<권장처리>>',
+    '<<제목>>안전한 후속 조치',
+    '<<구분>>추정',
+    '<<근거>>WS-008',
+    '<<내용>>정상 구획은 다시 카드로 표시합니다.',
+    '<<끝>>',
+  ].join('\r\n');
+  const parsed = parseDelimitedDisplaySegments(content, 'analysis');
+  assert.equal(parsed.terminated, true);
+  assert.deepEqual(
+    parsed.segments.map((segment) =>
+      segment.type === 'block' ? `card:${segment.block.label}` : 'raw',
+    ),
+    ['card:요약', 'raw', 'card:권장처리'],
+  );
+  const raw = parsed.segments.find((segment) => segment.type === 'raw');
+  assert.ok(raw && raw.type === 'raw');
+  assert.equal(
+    raw.content,
+    '<<알수없는구획>>\r\n이 조각은 원문이어야 합니다.\r\n',
+  );
+});
+
+void test('customer display recovers after a malformed object without presenting it as a trusted card', () => {
+  const content = [
+    '설명 문구',
+    '<<요약>>정상 요약',
+    '<<확인된맥락>>',
+    '<<제목>>필드 누락',
+    '<<내용>>순서도 잘못됨',
+    '<<권장처리>>',
+    '<<제목>>복구된 조치',
+    '<<구분>>추정',
+    '<<근거>>WS-001',
+    '<<내용>>후속 구획은 정상입니다.',
+    '<<끝>>',
+    '뒤쪽 잡문',
+  ].join('\n');
+  const parsed = parseDelimitedDisplaySegments(content, 'analysis');
+  assert.deepEqual(
+    parsed.segments.map((segment) =>
+      segment.type === 'block' ? `card:${segment.block.label}` : 'raw',
+    ),
+    ['raw', 'card:요약', 'raw', 'card:권장처리', 'raw'],
+  );
+  assert.equal(
+    parsed.segments[0].type === 'raw' ? parsed.segments[0].content : '',
+    '설명 문구\n',
+  );
+  assert.match(
+    parsed.segments[2].type === 'raw' ? parsed.segments[2].content : '',
+    /^<<확인된맥락>>/,
+  );
+  const trailing = parsed.segments.at(-1);
+  assert.equal(trailing?.type === 'raw' ? trailing.content : '', '\n뒤쪽 잡문');
+});
+
+void test('customer display keeps locally valid sections when the final marker is missing', () => {
+  const content = '<<전략>>연결 이력을 우선 검증합니다.';
+  const parsed = parseDelimitedDisplaySegments(content, 'test-cases');
+  assert.equal(parsed.terminated, false);
+  assert.equal(parsed.segments.length, 1);
+  assert.equal(parsed.segments[0].type, 'block');
+  assert.equal(
+    parsed.segments[0].type === 'block' ? parsed.segments[0].block.body : '',
+    '연결 이력을 우선 검증합니다.',
+  );
+});
+
+void test('test-case display isolates one broken case and resumes cards for later valid cases', () => {
+  const testCase = (number: number) =>
+    [
+      '<<테스트케이스>>',
+      `<<번호>>TC-0${number}`,
+      `<<제목>>검증 ${number}`,
+      '<<우선순위>>필수',
+      '<<사전조건>>준비 완료',
+      '<<실행단계>>1. 기능을 실행한다.',
+      '<<기대결과>>정상 처리된다.',
+      '<<근거>>WS-008',
+    ].join('\n');
+  const brokenCase = [
+    '<<테스트케이스>>',
+    '<<번호>>TC-02',
+    '<<제목>>깨진 검증',
+    '<<실행단계>>필수 필드가 누락됐다.',
+    '<<기대결과>>원문으로 보여야 한다.',
+    '<<근거>>WS-008',
+  ].join('\n');
+  const content = [
+    '<<전략>>정상 구획을 계속 활용한다.',
+    testCase(1),
+    brokenCase,
+    testCase(3),
+    '<<끝>>',
+  ].join('\n');
+  const parsed = parseDelimitedDisplaySegments(content, 'test-cases');
+  assert.deepEqual(
+    parsed.segments.map((segment) =>
+      segment.type === 'block' ? `card:${segment.block.label}` : 'raw',
+    ),
+    ['card:전략', 'card:테스트케이스', 'raw', 'card:테스트케이스'],
+  );
+  const raw = parsed.segments.find((segment) => segment.type === 'raw');
+  assert.ok(raw?.type === 'raw');
+  assert.equal(raw.content, `${brokenCase}\n`);
+});
+
+void test('customer recovery treats duplicate and reversed top-level sections as raw', () => {
+  const claim = (label: string, title: string) =>
+    [
+      `<<${label}>>`,
+      `<<제목>>${title}`,
+      '<<구분>>추정',
+      '<<근거>>WS-008',
+      '<<내용>>내용',
+    ].join('\n');
+  const content = [
+    '<<요약>>첫 요약',
+    '<<요약>>중복 요약',
+    claim('권장처리', '정상 조치'),
+    claim('확인된맥락', '역순 맥락'),
+    '<<끝>>',
+  ].join('\n');
+  const parsed = parseDelimitedDisplaySegments(content, 'analysis');
+  assert.deepEqual(
+    parsed.segments.map((segment) =>
+      segment.type === 'block' ? `card:${segment.block.label}` : 'raw',
+    ),
+    ['card:요약', 'raw', 'card:권장처리', 'raw'],
+  );
+});
+
+void test('a complete object card survives malformed trailing text in its section', () => {
+  const content = [
+    '<<요약>>정상 요약',
+    '<<확인된맥락>>',
+    '<<제목>>완성된 기록',
+    '<<구분>>사실',
+    '<<근거>>WS-008',
+    '<<내용>>여기까지는 정상입니다.',
+    '<<알수없는구획>>이 부분만 원문입니다.',
+    '<<권장처리>>',
+    '<<제목>>후속 조치',
+    '<<구분>>추정',
+    '<<근거>>WS-008',
+    '<<내용>>계속 처리합니다.',
+    '<<끝>>',
+  ].join('\n');
+  const parsed = parseDelimitedDisplaySegments(content, 'analysis');
+  assert.deepEqual(
+    parsed.segments.map((segment) =>
+      segment.type === 'block' ? `card:${segment.block.label}` : 'raw',
+    ),
+    ['card:요약', 'card:확인된맥락', 'raw', 'card:권장처리'],
+  );
+  const raw = parsed.segments.find((segment) => segment.type === 'raw');
+  assert.equal(
+    raw?.type === 'raw' ? raw.content : '',
+    '<<알수없는구획>>이 부분만 원문입니다.\n',
+  );
+});
+
+void test('streaming never creates an empty required card before a malformed marker', () => {
+  const parsed = parseDelimitedDisplaySegments(
+    '<<요약>><<알수없는구획>>계속 출력 중',
+    'analysis',
+    true,
+  );
+  assert.equal(
+    parsed.segments.some((segment) => segment.type === 'block'),
+    false,
+  );
+  assert.equal(parsed.activeTarget?.type, 'raw');
+});
+
+void test('streaming after an end marker keeps trailing raw text visibly active', () => {
+  const parsed = parseDelimitedDisplaySegments(
+    '<<요약>>정상 요약<<끝>>추가 출력',
+    'analysis',
+    true,
+  );
+  assert.equal(parsed.terminated, false);
+  assert.equal(parsed.segments.at(-1)?.type, 'raw');
+  assert.equal(parsed.activeTarget?.type, 'raw');
+});
+
+void test('mixed streaming holds an unfinished marker and keeps one active target', () => {
+  const content = [
+    '앞쪽 잡문',
+    '<<요약>>현재까지 정상인 요약',
+    '<<권장처리>>',
+    '<<제목>>범위 확인',
+    '<<구분>>추정',
+    '<<근거>>WS-001',
+    '<<내용>>처리 범위를 확인합니다.',
+    '<<테',
+  ].join('\n');
+  const parsed = parseDelimitedDisplaySegments(content, 'analysis', true);
+  const cards = parsed.segments.filter((segment) => segment.type === 'block');
+  assert.equal(cards.length, 2);
+  assert.equal(
+    parsed.segments.some(
+      (segment) => segment.type === 'raw' && segment.content.includes('<<테'),
+    ),
+    false,
+  );
+  assert.deepEqual(parsed.activeTarget, {
+    type: cards.at(-1)?.type,
+    start: cards.at(-1)?.start,
+  });
 });
 
 void test('known delimiter names still fall back raw when their structure is broken', () => {
@@ -783,6 +1003,9 @@ void test('the UI formats complete delimiters and preserves raw streaming or bro
   );
   assert.match(view, /data-output-format="raw"/);
   assert.match(view, /data-output-format="sections"/);
+  assert.match(view, /data-output-format="mixed"/);
+  assert.match(view, /kind !== 'memory'/);
+  assert.match(view, /원문 조각/);
   assert.match(view, /parseDelimitedDisplayProgress/);
   assert.match(view, /is-streaming/);
   assert.doesNotMatch(view, /dangerouslySetInnerHTML/);
@@ -805,6 +1028,12 @@ void test('the UI formats complete delimiters and preserves raw streaming or bro
     'utf8',
   );
   assert.match(memoryService, /compileModel !== 'source-fallback'/);
+  const llmServer = readFileSync(
+    new URL('../lib/llm-server.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(llmServer, /parseDelimitedDisplay\(streamed\.text, 'memory'\)/);
+  assert.doesNotMatch(llmServer, /parseDelimitedDisplaySegments/);
 });
 
 void test('completed AI results can be copied verbatim with a restricted-browser fallback', () => {

@@ -1522,6 +1522,50 @@
   gap: 10px;
   margin-top: 12px;
 }
+.llm-mixed-note {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid #45413a;
+  border-left: 3px solid #d7ba7d;
+  border-radius: 4px;
+  background: #292720;
+  color: #cfc5aa;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.llm-raw-fragment {
+  overflow: hidden;
+  border: 1px solid #45413a;
+  border-left: 3px solid #d7ba7d;
+  border-radius: 5px;
+  background: #24231f;
+}
+.llm-raw-fragment-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid #3d3931;
+}
+.llm-raw-fragment-heading h3 {
+  margin: 0;
+  color: #ddd5c2;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.llm-raw-fragment-heading small {
+  color: #aa9f83;
+  font-size: 10px;
+}
+.llm-plain-output.is-fragment {
+  margin: 0;
+  padding: 13px 14px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #cfc8b8;
+}
 .llm-section-card {
   --section-accent: #569cd6;
   position: relative;
@@ -1884,6 +1928,14 @@
   .star-birth-effect::after,
   .star-birth-effect > svg {
     animation-duration: 1ms;
+  }
+  .llm-section-card {
+    transition: none;
+  }
+  .llm-stream-caret {
+    opacity: 1;
+    box-shadow: none;
+    animation: none;
   }
 }
 

@@ -12,6 +12,8 @@ type Section = { name: string; body: string };
 
 export type DelimitedDisplayKind = 'analysis' | 'test-cases' | 'memory';
 
+export type CustomerDisplayKind = Exclude<DelimitedDisplayKind, 'memory'>;
+
 export type DelimitedDisplayField = {
   label: string;
   value: string;
@@ -26,6 +28,27 @@ export type DelimitedDisplayBlock = {
 export type DelimitedDisplay = {
   blocks: DelimitedDisplayBlock[];
   complete: boolean;
+};
+
+export type DelimitedDisplaySegment =
+  | {
+      type: 'block';
+      start: number;
+      end: number;
+      block: DelimitedDisplayBlock;
+      complete: boolean;
+    }
+  | {
+      type: 'raw';
+      start: number;
+      end: number;
+      content: string;
+    };
+
+export type DelimitedDisplayComposition = {
+  segments: DelimitedDisplaySegment[];
+  terminated: boolean;
+  activeTarget?: Pick<DelimitedDisplaySegment, 'type' | 'start'>;
 };
 
 type DisplayFieldRule = {
@@ -284,6 +307,262 @@ export function parseDelimitedDisplayProgress(
   kind: DelimitedDisplayKind,
 ): DelimitedDisplay | null {
   return parseDisplay(output, kind, true);
+}
+
+type IndexedMarker = {
+  rawLabel: string;
+  label: string;
+  start: number;
+  end: number;
+};
+
+function indexedMarkers(output: string, end: number): IndexedMarker[] {
+  return [...output.slice(0, end).matchAll(markers())].map((match) => ({
+    rawLabel: match[1],
+    label: match[1].trim(),
+    start: match.index!,
+    end: match.index! + match[0].length,
+  }));
+}
+
+function unfinishedMarkerStart(output: string, streaming: boolean) {
+  if (!streaming) return output.length;
+  const open = output.lastIndexOf('<<');
+  const close = output.lastIndexOf('>>');
+  if (open <= close) return output.length;
+  const tail = output.slice(open);
+  return tail.length <= 44 && !/[\r\n]/.test(tail) ? open : output.length;
+}
+
+function firstDelimiterAt(output: string, start: number, end: number) {
+  const open = output.indexOf('<<', start);
+  const close = output.indexOf('>>', start);
+  const candidates = [open, close].filter(
+    (index) => index >= start && index < end,
+  );
+  return candidates.length ? Math.min(...candidates) : -1;
+}
+
+function firstBrokenDelimiterAt(
+  output: string,
+  start: number,
+  end: number,
+  localMarkers: readonly IndexedMarker[],
+) {
+  const coveredOpen = new Set(localMarkers.map((marker) => marker.start));
+  const coveredClose = new Set(localMarkers.map((marker) => marker.end - 2));
+  let first = -1;
+  for (const [delimiter, covered] of [
+    ['<<', coveredOpen],
+    ['>>', coveredClose],
+  ] as const) {
+    let position = output.indexOf(delimiter, start);
+    while (position >= 0 && position < end) {
+      if (!covered.has(position) && (first < 0 || position < first))
+        first = position;
+      position = output.indexOf(delimiter, position + 2);
+    }
+  }
+  return first;
+}
+
+function pushRawSegment(
+  segments: DelimitedDisplaySegment[],
+  output: string,
+  start: number,
+  end: number,
+) {
+  if (end <= start || !output.slice(start, end).trim()) return;
+  const content = output.slice(start, end);
+  const previous = segments.at(-1);
+  if (previous?.type === 'raw' && previous.end === start) {
+    previous.end = end;
+    previous.content += content;
+    return;
+  }
+  segments.push({ type: 'raw', start, end, content });
+}
+
+function parseLocalDisplayBlock(
+  output: string,
+  marker: IndexedMarker,
+  end: number,
+  rule: DisplaySectionRule,
+  streamingTail: boolean,
+  localMarkers: readonly IndexedMarker[],
+):
+  | {
+      block: DelimitedDisplayBlock;
+      end: number;
+      complete: boolean;
+      rawStart?: number;
+    }
+  | undefined {
+  if (rule.mode === 'scalar') {
+    const invalidAt = firstDelimiterAt(output, marker.end, end);
+    const bodyEnd = invalidAt >= 0 ? invalidAt : end;
+    const body = output.slice(marker.end, bodyEnd).trim();
+    const activeValue = streamingTail && invalidAt < 0;
+    if (!body && !rule.allowEmpty && !activeValue) return;
+    return {
+      block: { label: marker.label, body, fields: [] },
+      end: bodyEnd,
+      complete: invalidAt >= 0 || !streamingTail,
+      rawStart: invalidAt >= 0 ? invalidAt : undefined,
+    };
+  }
+
+  const fields = localMarkers.slice(1);
+  const expectedFields = rule.fields ?? [];
+  const brokenAt = firstBrokenDelimiterAt(
+    output,
+    marker.end,
+    end,
+    localMarkers,
+  );
+  const firstSignal = Math.min(
+    fields[0]?.start ?? end,
+    brokenAt >= 0 ? brokenAt : end,
+  );
+  if (output.slice(marker.end, firstSignal).trim()) return;
+
+  const parsedFields: DelimitedDisplayField[] = [];
+  for (let index = 0; index < expectedFields.length; index += 1) {
+    const fieldMarker = fields[index];
+    const expected = expectedFields[index];
+    if (!fieldMarker || (brokenAt >= 0 && brokenAt < fieldMarker.start)) {
+      if (streamingTail && brokenAt < 0)
+        return {
+          block: { label: marker.label, body: '', fields: parsedFields },
+          end,
+          complete: false,
+        };
+      return;
+    }
+    if (
+      fieldMarker.rawLabel !== fieldMarker.label ||
+      fieldMarker.label !== expected.label
+    )
+      return;
+    const nextMarker = fields[index + 1];
+    const valueEnd = Math.min(
+      nextMarker?.start ?? end,
+      brokenAt >= 0 && brokenAt >= fieldMarker.end ? brokenAt : end,
+    );
+    const value = output.slice(fieldMarker.end, valueEnd).trim();
+    const isActiveField =
+      streamingTail &&
+      brokenAt < 0 &&
+      !nextMarker &&
+      index === fields.length - 1;
+    if (!validValue(value, expected, isActiveField)) return;
+    parsedFields.push({ label: fieldMarker.label, value });
+  }
+
+  const extraMarker = fields[expectedFields.length];
+  const rawStart = [extraMarker?.start, brokenAt]
+    .filter(
+      (position): position is number => position !== undefined && position >= 0,
+    )
+    .sort((left, right) => left - right)[0];
+  return {
+    block: { label: marker.label, body: '', fields: parsedFields },
+    end: rawStart ?? end,
+    complete: rawStart !== undefined || !streamingTail,
+    ...(rawStart !== undefined ? { rawStart } : {}),
+  };
+}
+
+/**
+ * Best-effort presentation recovery for customer-facing analysis and test-case
+ * text. Locally valid sections remain cards while malformed source slices stay
+ * untouched. Memory is deliberately excluded at the type boundary because its
+ * persisted artifact must continue through the strict parser above.
+ */
+export function parseDelimitedDisplaySegments(
+  output: string,
+  kind: CustomerDisplayKind,
+  streaming = false,
+): DelimitedDisplayComposition {
+  const parseEnd = unfinishedMarkerStart(output, streaming);
+  const schema = displaySchemas[kind];
+  const ruleByLabel = new Map(schema.map((rule) => [rule.label, rule]));
+  const ruleIndexByLabel = new Map(
+    schema.map((rule, index) => [rule.label, index]),
+  );
+  const allMarkers = indexedMarkers(output, parseEnd);
+  const boundaries = allMarkers.filter(
+    (marker) =>
+      marker.rawLabel === marker.label &&
+      (ruleByLabel.has(marker.label) || marker.label === '끝'),
+  );
+  const segments: DelimitedDisplaySegment[] = [];
+  let cursor = 0;
+  let terminated = false;
+  let lastAcceptedRuleIndex = -1;
+  const acceptedCounts = schema.map(() => 0);
+
+  for (const [boundaryIndex, boundary] of boundaries.entries()) {
+    if (boundary.start < cursor) continue;
+    pushRawSegment(segments, output, cursor, boundary.start);
+
+    if (boundary.label === '끝') {
+      terminated = !output.slice(boundary.end).trim();
+      cursor = boundary.end;
+      pushRawSegment(segments, output, cursor, output.length);
+      cursor = output.length;
+      break;
+    }
+
+    const nextBoundary = boundaries[boundaryIndex + 1];
+    const sectionEnd = nextBoundary?.start ?? parseEnd;
+    const rule = ruleByLabel.get(boundary.label)!;
+    const ruleIndex = ruleIndexByLabel.get(boundary.label)!;
+    const globallyValid =
+      ruleIndex >= lastAcceptedRuleIndex &&
+      acceptedCounts[ruleIndex] < rule.max;
+    const localMarkers = allMarkers.filter(
+      (marker) => marker.start >= boundary.start && marker.start < sectionEnd,
+    );
+    const streamingTail = streaming && !nextBoundary;
+    const parsed = globallyValid
+      ? parseLocalDisplayBlock(
+          output,
+          boundary,
+          sectionEnd,
+          rule,
+          streamingTail,
+          localMarkers,
+        )
+      : undefined;
+
+    if (!parsed) {
+      pushRawSegment(segments, output, boundary.start, sectionEnd);
+    } else {
+      segments.push({
+        type: 'block',
+        start: boundary.start,
+        end: parsed.end,
+        block: parsed.block,
+        complete: parsed.complete,
+      });
+      if (parsed.rawStart !== undefined)
+        pushRawSegment(segments, output, parsed.rawStart, sectionEnd);
+      acceptedCounts[ruleIndex] += 1;
+      lastAcceptedRuleIndex = Math.max(lastAcceptedRuleIndex, ruleIndex);
+    }
+    cursor = sectionEnd;
+  }
+
+  if (cursor < parseEnd) pushRawSegment(segments, output, cursor, parseEnd);
+  const active = streaming && !terminated ? segments.at(-1) : undefined;
+  return {
+    segments,
+    terminated,
+    ...(active
+      ? { activeTarget: { type: active.type, start: active.start } }
+      : {}),
+  };
 }
 
 function sections(text: string, topLevel: readonly string[]) {
