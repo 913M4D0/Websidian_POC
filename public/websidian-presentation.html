@@ -579,6 +579,708 @@
         font-size: clamp(15px, 1.15vw, 20px);
       }
 
+      .deck-outline {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 34px;
+        color: #87959e;
+        font-family: var(--mono);
+        font-size: clamp(11px, 0.8vw, 14px);
+        letter-spacing: 0.04em;
+      }
+
+      .deck-outline span {
+        padding: 8px 13px;
+        border: 1px solid rgba(132, 150, 161, 0.25);
+        border-radius: 999px;
+        background: rgba(13, 18, 23, 0.45);
+      }
+
+      .context-duality {
+        display: grid;
+        gap: clamp(34px, 5vh, 64px);
+      }
+
+      .context-duality h2 {
+        max-width: 22ch;
+        margin-bottom: 0;
+      }
+
+      .what-why {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: clamp(56px, 8vw, 130px);
+      }
+
+      .what-why::before {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 1px;
+        background: linear-gradient(transparent, #40505a 18%, #40505a 82%, transparent);
+        content: "";
+      }
+
+      .context-pane {
+        min-height: 330px;
+        padding-top: 24px;
+        border-top: 2px solid var(--blue);
+      }
+
+      .context-pane.history-pane {
+        border-top-color: var(--mint);
+      }
+
+      .context-pane .eyebrow {
+        color: var(--blue);
+        font-family: var(--mono);
+        font-size: clamp(13px, 1vw, 17px);
+        letter-spacing: 0.1em;
+      }
+
+      .context-pane.history-pane .eyebrow {
+        color: var(--mint);
+      }
+
+      .context-pane h3 {
+        margin: 18px 0 26px;
+        color: #eef3f5;
+        font-size: clamp(30px, 3vw, 54px);
+        letter-spacing: -0.045em;
+      }
+
+      .code-lines,
+      .decision-lines {
+        display: grid;
+        gap: 12px;
+      }
+
+      .code-lines span,
+      .decision-lines span {
+        display: grid;
+        grid-template-columns: 76px 1fr;
+        gap: 18px;
+        align-items: baseline;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #27323a;
+        color: #a9b5bb;
+        font-size: clamp(15px, 1.18vw, 20px);
+      }
+
+      .code-lines b,
+      .decision-lines b {
+        color: #647581;
+        font-family: var(--mono);
+        font-size: 0.68em;
+        font-weight: 500;
+      }
+
+      .decision-lines b {
+        color: var(--mint);
+      }
+
+      .context-conclusion {
+        color: #aab6bc;
+        font-size: clamp(18px, 1.45vw, 25px);
+        text-align: center;
+      }
+
+      .context-conclusion strong {
+        color: var(--white);
+      }
+
+      .memory-landscape {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(500px, 1.1fr);
+        gap: clamp(54px, 7vw, 120px);
+        align-items: center;
+      }
+
+      .memory-landscape h2 {
+        max-width: 15ch;
+      }
+
+      .memory-scale {
+        display: flex;
+        align-items: baseline;
+        gap: 18px;
+        margin-top: 36px;
+        color: var(--white);
+        font-family: var(--mono);
+        font-size: clamp(72px, 7.5vw, 128px);
+        font-weight: 700;
+        line-height: 0.9;
+        letter-spacing: -0.08em;
+        white-space: nowrap;
+      }
+
+      .memory-scale span {
+        color: var(--mint);
+        font-family: var(--font);
+        font-size: 0.22em;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+        white-space: normal;
+      }
+
+      .memory-map {
+        position: relative;
+        min-height: 520px;
+      }
+
+      .memory-map::before,
+      .memory-map::after {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        border: 1px dashed rgba(130, 151, 164, 0.2);
+        border-radius: 50%;
+        content: "";
+        transform: translate(-50%, -50%);
+      }
+
+      .memory-map::before {
+        width: 78%;
+        height: 78%;
+      }
+
+      .memory-map::after {
+        width: 48%;
+        height: 48%;
+      }
+
+      .memory-person {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        z-index: 2;
+        display: grid;
+        width: 190px;
+        height: 190px;
+        place-content: center;
+        border: 1px solid rgba(255, 255, 255, 0.62);
+        border-radius: 50%;
+        background: radial-gradient(circle, #263038, #151c21 68%);
+        color: #e8edef;
+        text-align: center;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 54px rgba(255, 255, 255, 0.08);
+      }
+
+      .memory-person b {
+        font-family: var(--mono);
+        font-size: clamp(20px, 1.7vw, 29px);
+      }
+
+      .memory-person span {
+        margin-top: 7px;
+        color: #81909a;
+        font-size: 13px;
+      }
+
+      .memory-source {
+        position: absolute;
+        z-index: 2;
+        min-width: 150px;
+        padding: 13px 16px;
+        border-left: 2px solid var(--source-color, var(--blue));
+        background: linear-gradient(90deg, rgba(24, 31, 37, 0.94), rgba(16, 22, 27, 0.32));
+        color: #d2dade;
+      }
+
+      .memory-source b {
+        display: block;
+        color: var(--source-color, var(--blue));
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+      }
+
+      .memory-source span {
+        display: block;
+        margin-top: 6px;
+        font-size: clamp(15px, 1.15vw, 20px);
+      }
+
+      .memory-source.issue { top: 5%; left: 3%; --source-color: var(--blue); }
+      .memory-source.commit { top: 8%; right: 1%; --source-color: var(--mint); }
+      .memory-source.document { bottom: 8%; left: 0; --source-color: var(--amber); }
+      .memory-source.people { right: 2%; bottom: 5%; --source-color: var(--violet); }
+
+      .memory-map-note {
+        position: absolute;
+        right: 19%;
+        bottom: 42%;
+        z-index: 3;
+        padding: 8px 11px;
+        border: 1px solid rgba(242, 119, 122, 0.5);
+        border-radius: 999px;
+        background: #151b20;
+        color: var(--coral);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .root-cause {
+        display: grid;
+        justify-items: center;
+        gap: 18px;
+        margin-top: 46px;
+      }
+
+      .root-cause-equation {
+        display: flex;
+        align-items: center;
+        gap: clamp(12px, 2vw, 30px);
+        color: #89969e;
+        font-family: var(--mono);
+        font-size: clamp(13px, 1vw, 17px);
+      }
+
+      .root-cause-equation strong {
+        padding: 11px 15px;
+        border: 1px solid #35414a;
+        border-radius: 5px;
+        color: #cdd5d9;
+        font-weight: 500;
+      }
+
+      .root-cause-equation strong:last-child {
+        border-color: rgba(242, 119, 122, 0.55);
+        color: var(--coral);
+      }
+
+      .root-cause-statement {
+        color: #dbe2e5;
+        font-size: clamp(19px, 1.55vw, 27px);
+      }
+
+      .retrieval-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 50px;
+        margin-bottom: clamp(30px, 4vh, 50px);
+      }
+
+      .retrieval-head h2 {
+        max-width: 22ch;
+        margin-bottom: 0;
+      }
+
+      .retrieval-head p {
+        max-width: 36ch;
+        margin: 0;
+        color: #87959d;
+        font-size: clamp(14px, 1.08vw, 18px);
+        line-height: 1.6;
+      }
+
+      .retrieval-compare {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: clamp(68px, 8vw, 130px);
+      }
+
+      .retrieval-compare::before {
+        position: absolute;
+        top: 8px;
+        bottom: 8px;
+        left: 50%;
+        width: 1px;
+        background: linear-gradient(transparent, #3b4750 15%, #3b4750 85%, transparent);
+        content: "";
+      }
+
+      .retrieval-side {
+        min-width: 0;
+      }
+
+      .retrieval-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 15px;
+        border-bottom: 2px solid var(--blue);
+      }
+
+      .retrieval-side.graph .retrieval-label {
+        border-color: var(--mint);
+      }
+
+      .retrieval-label b {
+        color: #e5ebee;
+        font-size: clamp(20px, 1.55vw, 27px);
+      }
+
+      .retrieval-label span {
+        color: var(--blue);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .retrieval-side.graph .retrieval-label span {
+        color: var(--mint);
+      }
+
+      .retrieval-query {
+        display: inline-flex;
+        margin: 28px 0 22px;
+        padding: 11px 15px;
+        border: 1px solid #3c4952;
+        border-radius: 5px;
+        color: #d5dde1;
+        font-family: var(--mono);
+        font-size: clamp(13px, 1vw, 17px);
+      }
+
+      .topk-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .topk-row {
+        display: grid;
+        grid-template-columns: 58px 1fr auto;
+        gap: 13px;
+        align-items: center;
+        padding: 13px 0;
+        border-bottom: 1px solid #27323a;
+        color: #aeb9bf;
+        font-size: clamp(14px, 1vw, 17px);
+      }
+
+      .topk-row b,
+      .topk-row i {
+        font-family: var(--mono);
+        font-size: 11px;
+        font-style: normal;
+      }
+
+      .topk-row b { color: var(--blue); }
+      .topk-row i { color: #687680; }
+
+      .search-blindspot {
+        margin-top: 22px;
+        color: var(--coral);
+        font-size: clamp(14px, 1.02vw, 18px);
+      }
+
+      .graph-chain {
+        display: grid;
+        grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr) auto minmax(120px, 1fr);
+        gap: 12px;
+        align-items: center;
+        min-height: 210px;
+      }
+
+      .chain-node {
+        display: grid;
+        min-height: 118px;
+        place-content: center;
+        gap: 8px;
+        padding: 16px;
+        border: 1px solid #43515a;
+        border-radius: 9px;
+        background: #151c22;
+        text-align: center;
+      }
+
+      .chain-node b {
+        color: #eef3f5;
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+
+      .chain-node span {
+        color: #98a5ad;
+        font-size: clamp(13px, 0.92vw, 16px);
+        line-height: 1.4;
+      }
+
+      .chain-node.root {
+        border-color: rgba(255, 255, 255, 0.8);
+        box-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
+      }
+
+      .chain-node.bridge { border-color: rgba(78, 201, 176, 0.65); }
+      .chain-node.remote { border-color: rgba(197, 134, 192, 0.65); }
+
+      .chain-edge {
+        display: grid;
+        gap: 5px;
+        min-width: 78px;
+        color: #75838c;
+        font-family: var(--mono);
+        font-size: 9px;
+        text-align: center;
+      }
+
+      .chain-edge::after {
+        height: 1px;
+        background: linear-gradient(90deg, var(--mint), var(--blue));
+        content: "";
+      }
+
+      .graph-gain {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        margin-top: 20px;
+        color: #98a6ad;
+        font-size: clamp(13px, 0.96vw, 17px);
+      }
+
+      .graph-gain strong { color: var(--mint); }
+
+      .source-footnote {
+        margin-top: 22px;
+        color: #63717a;
+        font-family: var(--mono);
+        font-size: clamp(9px, 0.68vw, 12px);
+        line-height: 1.55;
+      }
+
+      .source-footnote a {
+        color: #81939e;
+        text-decoration: none;
+      }
+
+      .case-search-strip {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 20px;
+        align-items: center;
+        margin-bottom: 38px;
+        padding: 15px 0 18px;
+        border-bottom: 1px solid #2c3740;
+        color: #93a0a8;
+      }
+
+      .case-search-strip b {
+        color: var(--blue);
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+
+      .case-search-strip span {
+        font-size: clamp(14px, 1.04vw, 18px);
+      }
+
+      .case-search-strip em {
+        color: var(--coral);
+        font-size: clamp(13px, 0.94vw, 16px);
+        font-style: normal;
+      }
+
+      .case-path {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(210px, 1fr) 170px minmax(210px, 1fr) 170px minmax(210px, 1fr);
+        gap: 14px;
+        align-items: center;
+        margin-top: clamp(32px, 5vh, 60px);
+      }
+
+      .case-path .chain-node {
+        min-height: 170px;
+      }
+
+      .case-path .chain-node span {
+        font-size: clamp(15px, 1.12vw, 19px);
+      }
+
+      .case-path .chain-edge {
+        min-width: 0;
+        font-size: 10px;
+      }
+
+      .case-path .hop-tag {
+        display: block;
+        color: #687780;
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      .case-verdict {
+        display: flex;
+        justify-content: center;
+        gap: 18px;
+        margin-top: 38px;
+        color: #9aa7ae;
+        font-size: clamp(15px, 1.1vw, 19px);
+      }
+
+      .case-verdict strong {
+        color: var(--mint);
+      }
+
+      .case-verdict span:last-child {
+        color: var(--amber);
+      }
+
+      .outcome-layout h2 {
+        max-width: 22ch;
+      }
+
+      .outcome-tracks {
+        display: grid;
+        gap: 26px;
+        margin-top: 46px;
+      }
+
+      .outcome-track {
+        display: grid;
+        grid-template-columns: minmax(220px, 0.55fr) minmax(420px, 1fr) auto;
+        gap: 26px;
+        align-items: center;
+      }
+
+      .outcome-track b {
+        color: #e1e7ea;
+        font-size: clamp(18px, 1.4vw, 24px);
+      }
+
+      .outcome-track i {
+        position: relative;
+        height: 2px;
+        background: #2d3941;
+      }
+
+      .outcome-track i::before {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg, var(--blue), var(--mint));
+        content: "";
+        transform: translateY(-50%);
+      }
+
+      .outcome-track i::after {
+        position: absolute;
+        top: 50%;
+        left: 100%;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--mint);
+        box-shadow: 0 0 16px rgba(78, 201, 176, 0.5);
+        content: "";
+        transform: translate(-50%, -50%);
+      }
+
+      .outcome-track span {
+        min-width: 108px;
+        color: var(--mint);
+        font-family: var(--mono);
+        font-size: clamp(13px, 1vw, 17px);
+        text-align: right;
+      }
+
+      .measurement-disclaimer {
+        display: flex;
+        justify-content: space-between;
+        gap: 32px;
+        margin-top: 42px;
+        padding-top: 18px;
+        border-top: 1px solid #2c3740;
+        color: #7f8d96;
+        font-size: clamp(13px, 0.98vw, 17px);
+      }
+
+      .measurement-disclaimer strong {
+        color: var(--amber);
+        font-family: var(--mono);
+        font-size: 0.85em;
+        letter-spacing: 0.05em;
+      }
+
+      .limits-layout {
+        display: grid;
+        grid-template-columns: 0.82fr 1.18fr;
+        gap: clamp(58px, 8vw, 130px);
+        align-items: start;
+      }
+
+      .limit-column {
+        padding-top: 20px;
+        border-top: 2px solid var(--blue);
+      }
+
+      .limit-column.production {
+        border-top-color: var(--amber);
+      }
+
+      .limit-column > b {
+        color: var(--blue);
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.11em;
+      }
+
+      .limit-column.production > b {
+        color: var(--amber);
+      }
+
+      .limit-column h3 {
+        margin: 14px 0 24px;
+        font-size: clamp(28px, 2.55vw, 46px);
+        letter-spacing: -0.045em;
+      }
+
+      .limit-list {
+        display: grid;
+      }
+
+      .limit-item {
+        display: grid;
+        grid-template-columns: 30px 1fr;
+        gap: 15px;
+        padding: 14px 0;
+        border-bottom: 1px solid #29343c;
+        color: #a4b0b7;
+        font-size: clamp(14px, 1.04vw, 18px);
+        line-height: 1.5;
+      }
+
+      .limit-item i {
+        color: var(--blue);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-style: normal;
+      }
+
+      .production .limit-item i {
+        color: var(--amber);
+      }
+
+      .release-gates {
+        display: grid;
+        grid-template-columns: auto 1fr auto 1fr auto;
+        gap: 16px;
+        align-items: center;
+        margin-top: 42px;
+        color: #9aa7ae;
+        font-family: var(--mono);
+        font-size: clamp(12px, 0.94vw, 16px);
+      }
+
+      .release-gates i {
+        height: 1px;
+        background: linear-gradient(90deg, #3f4c55, var(--amber));
+      }
+
+      .release-gates strong {
+        color: var(--amber);
+        font-weight: 500;
+      }
+
       .history-stage,
       .solution-stage,
       .ignorance-stage {
@@ -1639,13 +2341,46 @@
 
       @media screen and (max-width: 980px) {
         .two-column,
+        .what-why,
+        .memory-landscape,
         .failure-layout,
         .scale-layout,
         .solution-content,
         .graph-model,
+        .retrieval-compare,
+        .limits-layout,
         .poc-layout {
           grid-template-columns: 1fr;
           gap: 28px;
+        }
+
+        .what-why::before,
+        .retrieval-compare::before {
+          display: none;
+        }
+
+        .retrieval-head {
+          display: grid;
+          gap: 18px;
+        }
+
+        .graph-chain,
+        .case-path {
+          grid-template-columns: 1fr;
+        }
+
+        .memory-map {
+          min-height: 420px;
+        }
+
+        .outcome-track {
+          grid-template-columns: 1fr auto;
+          gap: 12px;
+        }
+
+        .outcome-track i {
+          grid-column: 1 / -1;
+          grid-row: 2;
         }
 
         .prompt-body {
@@ -1757,7 +2492,7 @@
       <section
         class="slide scene-opening active"
         data-title="오프닝"
-        data-note="성운을 3~4초 보여준 뒤 한 번 넘기면 제목이 나타납니다. 인사 후 현업의 AI 도입 전 단계라는 배경을 짧게 말합니다."
+        data-note="성운을 3초 보여준 뒤 한 번 넘기면 제목이 나타납니다. 프로젝트를 한 문장으로 정의하고, 오늘의 흐름이 서론·본론·결론임을 짧게 안내합니다."
         role="group"
         aria-roledescription="슬라이드"
         aria-label="1. 오프닝"
@@ -1795,6 +2530,7 @@
             <div class="project-name">WEBSIDIAN</div>
             <h1>과거의 기록을 연결해<br />미래의 해답을 찾아주는 AI 아카이브</h1>
             <div class="presenter">키움증권 SM부문 · 모바일운영팀 · 강경모 선임</div>
+            <div class="deck-outline"><span>서론 · 왜 필요한가</span><span>본론 · 어떻게 해결하는가</span><span>결론 · 무엇을 검증할까</span></div>
           </div>
         </div>
         <div class="screen-disclaimer">화면과 이슈는 모두 POC용 합성 데이터입니다</div>
@@ -1803,14 +2539,14 @@
       <section
         class="slide"
         data-title="AI의 바운더리"
-        data-note="본사 교육에서 기억에 남은 문장을 개인 경험으로 소개합니다. 정보와 리스크라는 두 단어를 보여준 뒤, 실제로 무엇을 줘야 하는지 질문합니다."
+        data-note="본사 교육에서 기억에 남은 바운더리 개념을 도입합니다. 정보와 리스크를 보여준 뒤 코드와 명세만으로 충분한지 질문합니다."
         role="group"
         aria-roledescription="슬라이드"
         aria-label="2. AI의 바운더리"
       >
         <div class="slide-inner two-column">
           <div>
-            <div class="slide-kicker">01 · 질문의 시작</div>
+            <div class="slide-kicker">서론 · 도입 배경</div>
             <h2>AI에게 일을 맡기기 전에</h2>
             <p class="lead">충분한 <span class="accent-amber">정보</span>와 예상 가능한 <span class="accent-coral">리스크</span>를 먼저 제공해야 합니다.</p>
             <div class="question-stack build" data-build>
@@ -1834,66 +2570,86 @@
 
       <section
         class="slide"
-        data-title="히스토리"
-        data-note="정보와 리스크의 실체를 히스토리로 정의합니다. 코드는 현재 상태를 보여주지만, 왜 그렇게 되었는지는 결정과 처리 기록에 남는다는 점을 강조합니다."
+        data-title="코드와 히스토리"
+        data-note="코드와 히스토리를 경쟁 관계로 말하지 않습니다. 코드는 현재 동작을, 히스토리는 그 동작이 만들어진 이유와 위험을 설명하므로 둘을 함께 제공해야 한다고 정리합니다."
         role="group"
         aria-roledescription="슬라이드"
-        aria-label="3. 히스토리"
+        aria-label="3. 코드와 히스토리"
       >
-        <div class="history-stage"><canvas class="graph-canvas" data-graph="scattered" aria-label="서로 연결되지 않은 업무 기록"></canvas></div>
-        <div class="slide-inner history-definition">
-          <div class="slide-kicker" style="justify-content:center">02 · 필요한 맥락</div>
-          <div class="history-word build" data-build>히스토리</div>
-          <p class="definition build" data-build>소프트웨어가 지금의 모습을 갖추기까지 쌓인 <strong>맥락과 의사결정 과정</strong></p>
-          <div class="context-fragments build" data-build>
-            <span>정보가 처리되는 위치</span>
-            <span>기획 당시의 의도</span>
-            <span>변경과 개선의 이유</span>
-            <span>장애와 복구의 기록</span>
+        <div class="slide-inner context-duality">
+          <div>
+            <div class="slide-kicker">서론 · 필요한 맥락</div>
+            <h2>코드는 <span class="accent-blue">무엇을</span>, 히스토리는 <span class="accent-mint">왜를</span> 말합니다</h2>
+          </div>
+          <div class="what-why">
+            <div class="context-pane build" data-build>
+              <span class="eyebrow">CODE · CURRENT STATE</span>
+              <h3>지금 어떻게 동작하는가</h3>
+              <div class="code-lines">
+                <span><b>INPUT</b>어떤 값이 들어오는지</span>
+                <span><b>LOGIC</b>어디에서 처리되는지</span>
+                <span><b>OUTPUT</b>현재 무엇을 반환하는지</span>
+              </div>
+            </div>
+            <div class="context-pane history-pane build" data-build>
+              <span class="eyebrow">HISTORY · DECISION CONTEXT</span>
+              <h3>왜 이렇게 만들어졌는가</h3>
+              <div class="decision-lines">
+                <span><b>INTENT</b>기획 당시의 의도</span>
+                <span><b>CHANGE</b>변경과 개선의 이유</span>
+                <span><b>RISK</b>장애·롤백·복구의 기록</span>
+              </div>
+            </div>
+          </div>
+          <p class="context-conclusion build" data-build>AI에게 필요한 바운더리는 코드만이 아니라 <strong>현재 상태 + 결정의 맥락</strong>입니다.</p>
+        </div>
+      </section>
+
+      <section
+        class="slide"
+        data-title="흩어진 조직의 기억"
+        data-note="한 팀의 40~50명이라는 실제 규모를 기준으로 설명합니다. 기록 자체는 이슈·커밋·문서에 남지만, 이 기록들이 왜 연결되는지는 담당자의 머릿속에만 남는다는 구조적 원인을 보여줍니다."
+        role="group"
+        aria-roledescription="슬라이드"
+        aria-label="4. 흩어진 조직의 기억"
+      >
+        <div class="slide-inner memory-landscape">
+          <div>
+            <div class="slide-kicker">서론 · 원인 분석</div>
+            <h2>기록은 여러 곳에 남고,<br /><span class="accent-coral">관계는 사람에게 남습니다</span></h2>
+            <p class="lead">한 팀만 해도 매주 40~50명이 이슈를 처리합니다. 타팀 영향과 과거 담당자의 판단까지 개인이 기억하기는 어렵습니다.</p>
+            <div class="memory-scale build" data-build>40-50<span>명 · 한 팀의 업무 기억</span></div>
+          </div>
+          <div class="memory-map build" data-build aria-label="여러 저장소의 기록이 담당자의 기억에 의존하는 구조">
+            <div class="memory-person"><b>담당자의 기억</b><span>관계를 설명하는 유일한 인덱스</span></div>
+            <div class="memory-source issue"><b>ISSUE</b><span>증상과 요청</span></div>
+            <div class="memory-source commit"><b>COMMIT</b><span>코드 변경</span></div>
+            <div class="memory-source document"><b>DOCUMENT</b><span>기획과 정책</span></div>
+            <div class="memory-source people"><b>OTHER TEAM</b><span>연계 영향</span></div>
+            <div class="memory-map-note">담당자 이동 → 연결 소실</div>
           </div>
         </div>
+        <div class="screen-disclaimer">40-50명은 발표자의 실제 팀 규모이며 제품 효과 수치가 아닙니다</div>
       </section>
 
       <section
         class="slide"
         data-title="연결되지 않은 기록의 비용"
-        data-note="네 가지 실패를 한 번에 읽지 말고 하나씩 넘깁니다. 모두 히스토리 부족이라는 한 원인에서 나온다는 점으로 묶습니다."
+        data-note="네 가지 실패를 하나씩 보여줍니다. 서로 다른 현상처럼 보이지만 모두 이미 존재하는 히스토리를 현재 업무와 연결하지 못해 생기는 비용이라는 점으로 묶습니다."
         role="group"
         aria-roledescription="슬라이드"
-        aria-label="4. 연결되지 않은 기록의 비용"
+        aria-label="5. 연결되지 않은 기록의 비용"
       >
         <div class="slide-inner failure-layout">
           <div class="failure-anchor">
             <strong>HISTORY GAP</strong>
-            <p>기록은 있지만<br />연결되어 있지 않습니다</p>
+            <p>같은 문제를<br />다시 처음부터<br />배웁니다</p>
           </div>
           <div class="failure-list">
-            <div class="failure-item build" data-build><b>01</b><div><h3>같은 흐름을 여러 곳에서 따로 처리</h3><p>공통으로 풀 문제를 화면마다 반복해서 해결합니다.</p></div></div>
-            <div class="failure-item build" data-build><b>02</b><div><h3>플랫폼 문제를 화면에서 임시 봉합</h3><p>근본 원인 대신 눈앞의 증상만 가립니다.</p></div></div>
-            <div class="failure-item build" data-build><b>03</b><div><h3>기획 의도가 사라진 코드</h3><p>정상 동작을 결함으로 오해해 불필요한 개발을 시작합니다.</p></div></div>
-            <div class="failure-item build" data-build><b>04</b><div><h3>과거 장애를 되풀이하는 수정</h3><p>롤백 이유를 모른 채 같은 변경을 다시 배포합니다.</p></div></div>
-          </div>
-        </div>
-      </section>
-
-      <section
-        class="slide"
-        data-title="기억의 규모"
-        data-note="한 팀의 40~50명이라는 사용자의 실제 조직 규모를 말합니다. 이슈 건수의 효과 수치는 만들지 않고, 기록의 양과 담당자 의존성이 커진다는 점만 설명합니다."
-        role="group"
-        aria-roledescription="슬라이드"
-        aria-label="5. 기억의 규모"
-      >
-        <div class="slide-inner scale-layout">
-          <div>
-            <div class="slide-kicker">03 · 사람의 한계</div>
-            <div class="big-number">40-50<small>명 · 한 팀</small></div>
-            <div class="people-grid" data-people="50" aria-label="50명의 팀원을 나타낸 점"></div>
-          </div>
-          <div class="scale-lines">
-            <div class="scale-line build" data-build><strong>계속 쌓이는 처리 이력</strong><span>오늘의 해결이 다음 달에는 찾기 어려운 과거가 됩니다.</span></div>
-            <div class="scale-line build" data-build><strong>타팀에서 건너오는 영향</strong><span>원인이 다른 화면이나 공통 모듈에 있으면 발견까지 더 오래 걸립니다.</span></div>
-            <div class="scale-line build" data-build><strong>사람에게 묶인 맥락</strong><span>담당자가 이동하거나 퇴사하면 결정의 이유도 함께 사라집니다.</span></div>
+            <div class="failure-item build" data-build><b>01</b><div><h3>같은 흐름을 여러 곳에서 다시 구현</h3><p>공통으로 풀 문제를 화면마다 따로 해결합니다.</p></div></div>
+            <div class="failure-item build" data-build><b>02</b><div><h3>공통 문제를 화면에서 임시 봉합</h3><p>근본 원인 대신 눈앞의 증상만 가립니다.</p></div></div>
+            <div class="failure-item build" data-build><b>03</b><div><h3>기획 의도를 결함으로 오해</h3><p>불필요한 개발을 시작하고 새로운 부작용을 만듭니다.</p></div></div>
+            <div class="failure-item build" data-build><b>04</b><div><h3>장애로 롤백한 변경을 반복</h3><p>과거의 실패 이유를 모른 채 같은 위험을 재현합니다.</p></div></div>
           </div>
         </div>
       </section>
@@ -1901,99 +2657,140 @@
       <section
         class="slide"
         data-title="AI도 모르는 것"
-        data-note="‘나도 모름’에서 잠시 멈춥니다. AI를 비판하려는 장면이 아니라, 조직이 주지 않은 사내 히스토리는 모델이 알 수 없다는 경계를 설명합니다. 뒤의 수치는 개인 경험임을 분명히 말합니다."
+        data-note="AI의 성능 문제가 아니라 입력할 조직 맥락이 연결되지 않은 문제임을 강조합니다. 기록은 있지만 연결 가능한 Context가 없다는 한 문장으로 서론의 원인을 확정합니다."
         role="group"
         aria-roledescription="슬라이드"
         aria-label="6. AI도 모르는 것"
       >
         <div class="ignorance-stage"><canvas class="graph-canvas" data-graph="scattered" aria-label="AI와 연결되지 않은 업무 기록"></canvas></div>
         <div class="ignorance-content">
-          <p class="ignorance-question">내가 알지 못해 제공할 수 없는 히스토리라면?</p>
-          <div class="ignorance-title build" data-build>나도 모름</div>
-          <p class="ignorance-caption build" data-build>AI는 코드 몇 줄에서 조직의 맥락을 <span class="accent-coral">그럴듯하게 유추</span>할 뿐입니다.</p>
-          <div class="anecdote build" data-build aria-label="개인 경험">
-            <span><strong>10분</strong>알고 있었다면</span>
-            <span><strong>로그 400개</strong>원인을 찾으며</span>
-            <span><strong>주말 20시</strong>분석만 지속</span>
+          <div class="slide-kicker" style="justify-content:center">서론 · 근본 원인</div>
+          <p class="ignorance-question">조직이 연결해 주지 않은 사내 히스토리를 AI가 알 수 있을까요?</p>
+          <div class="ignorance-title build" data-build>AI도 모름</div>
+          <p class="ignorance-caption build" data-build>모델은 제공된 코드에서 맥락을 유추할 뿐, 잊힌 의사결정까지 복원할 수 없습니다.</p>
+          <div class="root-cause build" data-build>
+            <div class="root-cause-equation"><strong>기록은 있음</strong><span>≠</span><strong>연결 가능한 CONTEXT는 없음</strong></div>
+            <div class="root-cause-statement">문제의 원인은 기록 부족이 아니라 <span class="accent-coral">연결 구조의 부재</span>입니다.</div>
           </div>
         </div>
-        <div class="screen-disclaimer">위 수치는 발표자의 실제 경험을 설명하는 사례이며 성과 측정값이 아닙니다</div>
+      </section>
+
+      <section
+        class="slide"
+        data-title="일반 검색과 그래프 탐색"
+        data-note="벡터 검색을 열등하다고 말하지 않습니다. 일반·벡터 검색은 질문과 가까운 후보를 빠르게 찾고, 그래프 탐색은 후보 사이의 중간 기록과 연결 이유를 보존한다는 역할 차이를 설명합니다."
+        role="group"
+        aria-roledescription="슬라이드"
+        aria-label="7. 일반 검색과 그래프 탐색"
+      >
+        <div class="slide-inner">
+          <div class="retrieval-head">
+            <div>
+              <div class="slide-kicker">본론 · 아이디어</div>
+              <h2>가까운 문서를 찾는 것과,<br /><span class="accent-mint">연결 경로</span>를 찾는 것은 다릅니다</h2>
+            </div>
+            <p>검색 방식의 우열이 아니라 답하는 질문의 차이입니다. Websidian은 목록 검색과 관계 탐색을 함께 사용합니다.</p>
+          </div>
+          <div class="retrieval-compare">
+            <div class="retrieval-side build" data-build>
+              <div class="retrieval-label"><b>일반·벡터 검색</b><span>TOP-K RESULTS</span></div>
+              <div class="retrieval-query">QUERY · 현재 이슈의 증상</div>
+              <div class="topk-list">
+                <div class="topk-row"><b>01</b><span>표현이 가장 비슷한 완료 이슈 A</span><i>NEAR</i></div>
+                <div class="topk-row"><b>02</b><span>같은 키워드를 가진 완료 이슈 B</span><i>NEAR</i></div>
+                <div class="topk-row"><b>03</b><span>유사한 증상의 완료 이슈 C</span><i>NEAR</i></div>
+              </div>
+              <div class="search-blindspot">질문: “무엇이 가장 가까운가?”</div>
+            </div>
+            <div class="retrieval-side graph build" data-build>
+              <div class="retrieval-label"><b>그래프 관계 탐색</b><span>PATH · 1-HOP / 2-HOP</span></div>
+              <div class="retrieval-query">ROOT · 현재 이슈</div>
+              <div class="graph-chain">
+                <div class="chain-node root"><b>CURRENT</b><span>현재 이슈</span></div>
+                <div class="chain-edge"><span>같은 자료</span></div>
+                <div class="chain-node bridge"><b>1-HOP</b><span>중간 완료 이슈</span></div>
+                <div class="chain-edge"><span>명시 참고</span></div>
+                <div class="chain-node remote"><b>2-HOP</b><span>표현이 다른 추가 맥락</span></div>
+              </div>
+              <div class="graph-gain"><span>질문: <strong>“무엇을 따라 확인할까?”</strong></span><span>연결 이유 + 원문 경로</span></div>
+            </div>
+          </div>
+          <div class="source-footnote">참고: <a href="https://www.youtube.com/watch?v=mAekyqd561w" target="_blank" rel="noreferrer">GraphRAG 참고 영상</a> · <a href="https://microsoft.github.io/graphrag/" target="_blank" rel="noreferrer">Microsoft GraphRAG 공식 문서</a>의 “connect the dots” 문제와 로컬 탐색 원리. Websidian은 Microsoft GraphRAG 구현이 아닌 이슈 중심 혼합 관계 탐색 POC입니다.</div>
+        </div>
+      </section>
+
+      <section
+        class="slide"
+        data-title="WS-024 조사 경로"
+        data-note="개념 도식과 같은 좌우·깊이 문법을 실제 합성 이슈에 적용합니다. WS-024에서 WS-022를 거쳐 WS-021을 발견하지만, 이 경로는 원인 확정이 아니라 먼저 확인할 조사 후보입니다."
+        role="group"
+        aria-roledescription="슬라이드"
+        aria-label="8. WS-024 조사 경로"
+      >
+        <div class="slide-inner">
+          <div class="slide-kicker">본론 · 검색 비교의 실제 예</div>
+          <h2 style="max-width:25ch;margin-bottom:24px">‘오늘 접수 누락’만 찾으면<br />타팀의 ‘시간대 변경’은 멀리 있습니다</h2>
+          <div class="case-search-strip build" data-build>
+            <b>SYMPTOM SEARCH</b>
+            <span>“오늘 · 접수 · 목록”과 표현이 가까운 기록부터 노출</span>
+            <em>“다국가 배치 · UTC 기본값”은 직접 질의와 표현이 다름</em>
+          </div>
+          <div class="case-path build" data-build aria-label="WS-024에서 WS-022를 거쳐 WS-021로 이어지는 2단계 탐색 경로">
+            <div class="chain-node root"><span class="hop-tag">0-HOP · 진행 이슈</span><b>WS-024</b><span>전체 접수와 오늘 목록의<br />건수가 맞지 않음</span></div>
+            <div class="chain-edge"><span>today-receptions.ts<br />day-range.ts</span></div>
+            <div class="chain-node bridge"><span class="hop-tag">1-HOP · 배포 이력</span><b>WS-022</b><span>접수 서비스의<br />공통 패키지 업데이트</span></div>
+            <div class="chain-edge"><span>day-range.ts<br />common-dates 3.4.0</span></div>
+            <div class="chain-node remote"><span class="hop-tag">2-HOP · 타팀 이력</span><b>WS-021</b><span>다국가 배치의<br />기본 시간대 변경</span></div>
+          </div>
+          <div class="case-verdict build" data-build><strong>먼저 확인할 조사 후보: common-dates 3.4.0의 기본 시간대 변경</strong><span>탐색 경로이며 원인 확정이 아닙니다</span></div>
+        </div>
+        <div class="screen-disclaimer">이슈·파일 경로·처리 기록은 모두 합성 POC 데이터입니다</div>
       </section>
 
       <section
         class="slide"
         data-title="Websidian"
-        data-note="여기서 서비스 이름을 처음 정식으로 소개합니다. 완료 이슈를 원문 그대로 보존하고, 파생 기억은 별도로 만들며, 다음 이슈가 그 기억을 탐색한다는 네 문장만 설명합니다."
+        data-note="Websidian을 Microsoft GraphRAG로 부르지 않습니다. 완료 이슈를 원문 그대로 보존하고 텍스트·공유 자료·선택적 의미 이웃으로 연결한 뒤 2-hop 경로와 원문을 보여주는 이슈 중심 혼합 관계 탐색 POC로 정의합니다."
         role="group"
         aria-roledescription="슬라이드"
-        aria-label="7. Websidian"
+        aria-label="9. Websidian"
       >
         <div class="solution-stage"><canvas class="graph-canvas" data-graph="connected" aria-label="연결된 Websidian 기억 그래프"></canvas></div>
         <div class="solution-content">
           <div class="solution-copy">
-            <div class="slide-kicker">04 · 해결 구조</div>
-            <h2>완료된 이슈가 조직의 기억으로 남습니다</h2>
-            <p class="lead"><span class="accent-mint">Websidian</span>은 과거의 결정을 다음 업무가 찾을 수 있게 연결합니다.</p>
+            <div class="slide-kicker">본론 · 해결책</div>
+            <h2>이슈를 조직 기억의<br />기본 단위로 삼습니다</h2>
+            <p class="lead"><span class="accent-mint">Websidian</span>은 과거의 완료 기록을 현재 이슈가 따라갈 수 있는 근거 경로로 바꿉니다.</p>
           </div>
           <div class="solution-principles build" data-build>
             <div class="solution-principle"><b>01</b><span>이슈 원문과 처리 기록은 그대로 보존합니다.</span></div>
-            <div class="solution-principle"><b>02</b><span>완료 결과에서 검색용 기억을 별도로 만듭니다.</span></div>
-            <div class="solution-principle"><b>03</b><span>현재 이슈를 기준으로 관련된 과거 이력을 찾습니다.</span></div>
-            <div class="solution-principle"><b>04</b><span>AI는 연결된 원문으로 분석과 테스트 케이스를 작성합니다.</span></div>
+            <div class="solution-principle"><b>02</b><span>텍스트와 공유 자료, 선택적 의미 유사도로 완료 이력을 좁힙니다.</span></div>
+            <div class="solution-principle"><b>03</b><span>현재 이슈에서 1-hop·2-hop의 연결 이유와 원문을 함께 보여줍니다.</span></div>
+            <div class="solution-principle"><b>04</b><span>AI는 사용자가 요청할 때 연결된 원문 안에서 분석과 테스트를 보조합니다.</span></div>
           </div>
         </div>
-      </section>
-
-      <section
-        class="slide"
-        data-title="관련 이력의 배치 기준"
-        data-note="관계는 시간, 같은 변경 자료, 의미 유사도로 계산합니다. 1-hop과 2-hop은 탐색 깊이이며 인과관계를 확정하는 표현이 아님을 반드시 말합니다."
-        role="group"
-        aria-roledescription="슬라이드"
-        aria-label="8. 관련 이력의 배치 기준"
-      >
-        <div class="slide-inner graph-model">
-          <div>
-            <div class="slide-kicker">05 · 탐색 모델</div>
-            <h2>현재 이슈에서 과거로 들어가는 경로</h2>
-            <div class="ranking-list">
-              <div class="ranking-item build" data-build><b>01</b><strong>시간선</strong><span>언제 발생했는가</span></div>
-              <div class="ranking-item build" data-build><b>02</b><strong>변경 리소스</strong><span>같은 파일·문서·모듈인가</span></div>
-              <div class="ranking-item build" data-build><b>03</b><strong>의미 유사도</strong><span>같은 업무 문제인가</span></div>
-            </div>
-          </div>
-          <div class="path-map build" data-build aria-label="현재 이슈에서 2단계 이력을 찾는 도식">
-            <i class="path-line l1"></i><i class="path-line l2"></i><i class="path-line l3"></i><i class="path-line l4"></i>
-            <div class="path-node root"><b>WS-024</b><small>오늘 접수 누락</small></div>
-            <div class="path-node one-a"><b>WS-022</b><small>공통 날짜 패키지</small></div>
-            <div class="path-node one-b"><b>WS-017</b><small>국내 업무일 기준</small></div>
-            <div class="path-node two-a"><b>WS-021</b><small>타팀 시간대 변경</small></div>
-            <div class="path-node two-b"><b>WS-018</b><small>경계 시각 회귀</small></div>
-            <span class="hop-label h1">1-HOP</span><span class="hop-label h2">2-HOP</span>
-            <div class="model-note">경로는 조사 순서이며 원인 확정이 아닙니다</div>
-          </div>
-        </div>
+        <div class="screen-disclaimer">제품 정의 · 이슈 중심 혼합 관계 탐색 POC</div>
       </section>
 
       <section
         class="slide"
         data-title="이슈가 기억이 되는 과정"
-        data-note="플랫폼에 상관없이 반복되는 다섯 단계입니다. 진행 중 노드는 흰색, 완료 기억은 팀 색으로 바뀝니다. 원문 ID·제목·본문이 유지된다는 문장을 강조합니다."
+        data-note="플랫폼에 상관없이 반복되는 다섯 단계입니다. 완료 즉시 원문 기반 기억 노드가 생기며, 선택적 Luna 파생 기억만 별도로 엄격 검증합니다. 진행 노드는 흰색에서 완료 팀 색으로 바뀌고 원문 ID·제목·본문은 유지됩니다."
         role="group"
         aria-roledescription="슬라이드"
-        aria-label="9. 이슈가 기억이 되는 과정"
+        aria-label="10. 이슈가 기억이 되는 과정"
       >
         <div class="slide-inner">
-          <div class="slide-kicker">06 · 반복되는 한 사이클</div>
+          <div class="slide-kicker">본론 · 반복되는 업무 흐름</div>
           <h2>이슈 하나가 다음 이슈의 출발점이 되는 과정</h2>
           <div class="flow-line">
             <div class="flow-step build" data-build><b>이슈 등록</b><span>직접 입력 또는<br />GitHub 가져오기</span></div>
-            <div class="flow-step build" data-build><b>관련 이력</b><span>자동 2-hop 탐색<br />원문 확인</span></div>
-            <div class="flow-step build" data-build><b>AI 지원</b><span>이슈 분석<br />테스트 케이스</span></div>
+            <div class="flow-step build" data-build><b>근거 탐색</b><span>관련 완료 이력<br />2-hop·원문 확인</span></div>
+            <div class="flow-step build" data-build><b>선택적 AI</b><span>근거 안에서 분석<br />테스트 케이스</span></div>
             <div class="flow-step build" data-build><b>처리 완료</b><span>결과와 근거<br />추가 자료 기록</span></div>
-            <div class="flow-step build" data-build><b>기억 노드</b><span>엄격 검증 후<br />그래프에 재등록</span></div>
+            <div class="flow-step build" data-build><b>기억 생성</b><span>원문 기반 즉시 생성<br />AI 파생은 별도 검증</span></div>
           </div>
-          <div class="source-rule build" data-build><span>진행 노드 <b style="color:#fff">● WHITE</b></span><i></i><strong style="color:var(--mint)">원본 ID · 제목 · 본문은 변하지 않습니다</strong></div>
+          <div class="source-rule build" data-build><span><b style="color:#fff">● 진행</b> → <b style="color:var(--mint)">● 완료 기억</b></span><i></i><strong style="color:var(--mint)">원본 ID · 제목 · 본문은 변하지 않습니다</strong></div>
         </div>
       </section>
 
@@ -2003,10 +2800,10 @@
         data-note="세 사례는 모두 합성 데이터입니다. WS-024의 타팀 변경은 원인 확정이 아니라 조사 후보 발견이라고 표현합니다. 각 행의 마지막 가치만 짧게 읽습니다."
         role="group"
         aria-roledescription="슬라이드"
-        aria-label="10. 세 가지 대표 시나리오"
+        aria-label="11. 세 가지 대표 시나리오"
       >
         <div class="slide-inner">
-          <div class="slide-kicker">07 · 대표 사례</div>
+          <div class="slide-kicker">본론 · 대표 시나리오</div>
           <h2 style="margin-bottom:20px">같은 그래프가 서로 다른 결정을 돕습니다</h2>
           <div class="scenario-stack">
             <div class="scenario-row build" data-build><span class="scenario-number">01</span><div class="scenario-issue"><b>WS-008</b><strong>주문 재시도 후 중복 접수</strong></div><div class="scenario-history">과거 재시도·롤백 기록에서 검증한 멱등 처리 기준을 다시 찾습니다.</div><div class="scenario-value">해결 이력 재사용</div></div>
@@ -2018,51 +2815,15 @@
       </section>
 
       <section
-        class="slide"
-        data-title="POC 범위와 운영 기준"
-        data-note="현재 구현과 미래 계획을 섞지 않습니다. 294건은 합성 이슈 수이고 251은 완료 단계 노드이지 AI 컴파일 수가 아닙니다. 실제 현업 파일럿에서는 네 가지 지표를 먼저 측정하겠다고 설명합니다."
-        role="group"
-        aria-roledescription="슬라이드"
-        aria-label="11. POC 범위와 운영 기준"
-      >
-        <div class="slide-inner poc-layout">
-          <div>
-            <div class="slide-kicker">08 · 현재 구현</div>
-            <h2>POC가 지금 증명한 범위</h2>
-            <div class="poc-stats">
-              <div class="poc-stat"><strong>294</strong><span>합성 이슈 전체</span></div>
-              <div class="poc-stat"><strong>251</strong><span>완료 단계 기억 노드</span></div>
-              <div class="poc-stat"><strong class="white-node">43</strong><span>흰색 진행 노드</span></div>
-              <div class="poc-stat"><strong>24</strong><span>GitHub 연결 대표 이슈</span></div>
-            </div>
-            <div class="measurement-line build" data-build>
-              <span>이력 탐색 시간</span><span>중복·불필요 개발</span><span>회귀 누락</span><span>타팀 영향 발견 시간</span>
-            </div>
-          </div>
-          <div>
-            <div class="slide-kicker">09 · 운영 안전장치</div>
-            <div class="guardrail-list">
-              <div class="guardrail build" data-build><b>01</b><div><strong>AI는 필요할 때만 호출</strong><span>전체 데이터를 보내지 않고 현재 이슈에 연결된 완료 이력만 사용합니다.</span></div></div>
-              <div class="guardrail build" data-build><b>02</b><div><strong>기억 노드는 엄격하게 검증</strong><span>형식이나 수신이 불완전하면 AI 결과를 저장하지 않고 원문 기반 기억으로 전환합니다.</span></div></div>
-              <div class="guardrail build" data-build><b>03</b><div><strong>형식 검증과 사실 검증을 구분</strong><span>AI의 결론만 믿지 않도록 근거 이슈 ID와 원문 탐색 경로를 함께 보여줍니다.</span></div></div>
-              <div class="guardrail build" data-build><b>04</b><div><strong>플랫폼 연결은 단계적으로 확대</strong><span>현재 GitHub 단방향 가져오기를 구현했고, 조직 권한·감사·백업은 파일럿에서 설계합니다.</span></div></div>
-            </div>
-            <div class="technology-line">AI · GPT 5.6 Luna via OpenRouter / Qwen3 Embedding 8B<br />OPEN SOURCE · Next/Vinext / Three.js / 3d-force-graph / Drizzle ORM</div>
-          </div>
-        </div>
-        <div class="screen-disclaimer">현재 POC는 개인별 작업공간이며 전사 권한·자료 ACL·대규모 운영은 후속 범위입니다</div>
-      </section>
-
-      <section
         class="slide demo-slide"
         data-title="라이브 데모"
-        data-note="링크를 클릭해 실제 서비스로 이동합니다. WS-008 하나에 집중해 관련 이력, 원문, AI 분석, 테스트 케이스, 완료, 기억 노드 탄생을 보여줍니다. AI 지연 시 연결된 원문을 먼저 설명합니다."
+        data-note="링크를 클릭해 실제 서비스로 이동합니다. WS-008 하나에 집중해 관련 이력, 원문, AI 분석, 테스트 케이스, 완료, 기억 노드 전환을 보여줍니다. AI 지연 시 연결된 원문을 설명하거나 B 백업 시연으로 전환합니다."
         role="group"
         aria-roledescription="슬라이드"
         aria-label="12. 라이브 데모"
       >
         <div class="slide-inner">
-          <div class="slide-kicker" style="justify-content:center">10 · LIVE DEMO</div>
+          <div class="slide-kicker" style="justify-content:center">본론 · LIVE DEMO</div>
           <h2>이제 실제 이슈 하나가<br />기억이 되는 과정을 보여드리겠습니다</h2>
           <a class="demo-link" href="https://websidian-memory-universe.dark-box-2837.chatgpt.site/" target="_blank" rel="noreferrer">WEBSIDIAN 열기 <span aria-hidden="true">↗</span></a>
           <div class="demo-steps">
@@ -2073,25 +2834,85 @@
       </section>
 
       <section
-        class="slide closing-slide"
-        data-title="결론"
-        data-note="그래프를 잠시 정지한 뒤 마지막 문장을 천천히 말합니다. ‘이슈를 닫는 도구’보다 ‘같은 문제를 두 번 배우지 않게 하는 조직 기억’이라는 의미로 끝냅니다."
+        class="slide"
+        data-title="기대효과와 검증 지표"
+        data-note="합성 POC의 숫자를 성과처럼 제시하지 않습니다. 현업 파일럿 전후에 같은 기준으로 측정할 네 가지 방향을 보여주고, 현재는 가설이라는 점을 분명히 말합니다."
         role="group"
         aria-roledescription="슬라이드"
-        aria-label="13. 결론"
+        aria-label="13. 기대효과와 검증 지표"
       >
+        <div class="slide-inner outcome-layout">
+          <div class="slide-kicker">결론 · 기대효과</div>
+          <h2>효과는 네 가지 운영 지표로<br /><span class="accent-mint">현업에서 검증</span>하겠습니다</h2>
+          <div class="outcome-tracks">
+            <div class="outcome-track build" data-build><b>첫 유효 이력 도달 시간</b><i></i><span>탐색 시간 ↓</span></div>
+            <div class="outcome-track build" data-build><b>과거 판단의 재사용</b><i></i><span>중복·불필요 개발 ↓</span></div>
+            <div class="outcome-track build" data-build><b>롤백 조건의 테스트 반영</b><i></i><span>회귀 확인 누락 ↓</span></div>
+            <div class="outcome-track build" data-build><b>공통 자료 경로의 발견</b><i></i><span>타팀 영향 후보 조기 발견</span></div>
+          </div>
+          <div class="measurement-disclaimer build" data-build><span><strong>BASELINE → PILOT</strong> 동일 유형 이슈의 전후 비교로 측정</span><span>현재 수치는 성과가 아니라 <strong>측정 전 가설</strong>입니다</span></div>
+        </div>
+      </section>
+
+      <section
+        class="slide"
+        data-title="현재 POC의 한계"
+        data-note="현재 구현 범위와 전사 적용 전에 검증할 운영 범위를 분리합니다. 251은 완료 단계 노드 수이지 AI가 모두 컴파일한 수가 아니며, GitHub는 수동 단방향 스냅샷입니다."
+        role="group"
+        aria-roledescription="슬라이드"
+        aria-label="14. 현재 POC의 한계"
+      >
+        <div class="slide-inner">
+          <div class="slide-kicker">결론 · 한계와 다음 단계</div>
+          <h2 style="max-width:23ch;margin-bottom:34px">POC는 흐름을 증명했고,<br />전사 적용은 <span class="accent-amber">운영 설계</span>로 검증해야 합니다</h2>
+          <div class="limits-layout">
+            <div class="limit-column build" data-build>
+              <b>CURRENT POC BOUNDARY</b>
+              <h3>현재 확인한 범위</h3>
+              <div class="limit-list">
+                <div class="limit-item"><i>01</i><span>개인 작업공간 · 합성 이슈 294건</span></div>
+                <div class="limit-item"><i>02</i><span>완료·기억 단계 251건 · 진행 43건 <small style="color:#66747d">(AI 컴파일 수 아님)</small></span></div>
+                <div class="limit-item"><i>03</i><span>대표 24건 GitHub 바인딩 · 수동 단방향 가져오기</span></div>
+                <div class="limit-item"><i>04</i><span>요청 시 AI 보조 · 실패해도 원문 기반 기억 유지</span></div>
+              </div>
+            </div>
+            <div class="limit-column production build" data-build>
+              <b>PRODUCTION GATES</b>
+              <h3>전사 적용 전 검증할 범위</h3>
+              <div class="limit-list">
+                <div class="limit-item"><i>01</i><span>조직 공동 공간과 팀·자료별 접근 권한</span></div>
+                <div class="limit-item"><i>02</i><span>민감정보 마스킹 · 감사 · 백업 · 보존 정책</span></div>
+                <div class="limit-item"><i>03</i><span>외부 도구 증분 동기화와 쓰기 정책</span></div>
+                <div class="limit-item"><i>04</i><span>완료 기억의 재개방·정정·버전 관리</span></div>
+                <div class="limit-item"><i>05</i><span>대규모 색인·그래프 성능·비용 운영</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="release-gates build" data-build><span>POC</span><i></i><strong>제한된 현업 파일럿</strong><i></i><span>운영 기준 충족 후 확대</span></div>
+        </div>
+      </section>
+
+      <section
+        class="slide closing-slide"
+        data-title="결론"
+        data-note="첫 장의 기억 우주를 다시 보여 수미상관을 만듭니다. 정답 자동화가 아니라 근거를 따라가는 탐색 경로를 증명했다는 문장과, 같은 문제를 두 번 배우지 않게 한다는 목표로 끝냅니다."
+        role="group"
+        aria-roledescription="슬라이드"
+        aria-label="15. 결론"
+      >
+        <div class="solution-stage"><canvas class="graph-canvas" data-graph="universe" aria-label="다시 연결된 조직의 기억 그래프"></canvas></div>
         <div class="slide-inner">
           <div class="closing-mark" aria-hidden="true"></div>
           <h2>한 번 해결한 문제를<br />조직이 다시 처음부터 배우지 않도록</h2>
-          <p class="lead" style="max-width:40ch;text-align:center">Websidian은 과거의 기록을 현재의 근거로 바꾸고, 그 근거를 다음 이슈에 남깁니다.</p>
-          <div class="closing-sub build" data-build>PAST RECORDS · FUTURE ANSWERS</div>
+          <p class="lead" style="max-width:44ch;text-align:center">Websidian이 증명하려는 것은 정답 자동화가 아니라, 과거의 기록을 현재의 근거로 따라가는 탐색 경로입니다.</p>
+          <div class="closing-sub build" data-build>PAST RECORDS · FUTURE ANSWERS · Q&amp;A</div>
         </div>
       </section>
     </main>
 
     <nav class="deck-chrome" aria-label="발표자료 탐색">
       <button class="deck-button" type="button" data-prev aria-label="이전">‹</button>
-      <span class="deck-count" id="deckCount">01 / 13</span>
+      <span class="deck-count" id="deckCount">01 / 15</span>
       <button class="deck-button" type="button" data-next aria-label="다음">›</button>
       <button class="deck-button" type="button" data-notes aria-label="발표자 메모">N</button>
       <button class="deck-button" type="button" data-reference aria-label="참고 자료">R</button>
@@ -2122,9 +2943,11 @@
     <aside class="reference-panel" id="referencePanel" hidden aria-label="참고 자료">
       <button class="panel-close" type="button" data-close-panel aria-label="참고 자료 닫기">×</button>
       <h3>REFERENCES & DISCLOSURE</h3>
-      <p>발표 구조와 그래프 전환 원리는 <a href="https://www.youtube.com/watch?v=mAekyqd561w" target="_blank" rel="noreferrer">GraphRAG 참고 영상</a>을 분석해 Websidian의 언어로 다시 설계했습니다.</p>
+      <p><a href="https://www.youtube.com/watch?v=mAekyqd561w" target="_blank" rel="noreferrer">참고 영상 · GraphRAG, 벡터 검색이 못 잇는 것</a>의 문제의식을 발표 흐름에 반영했습니다.</p>
+      <p><a href="https://microsoft.github.io/graphrag/" target="_blank" rel="noreferrer">Microsoft GraphRAG 공식 개요</a>와 <a href="https://microsoft.github.io/graphrag/query/local_search/" target="_blank" rel="noreferrer">Local Search 문서</a>에서 벡터 유사도 검색의 연결 한계와 엔티티 이웃 탐색 원리를 확인했습니다.</p>
+      <p>Websidian은 Microsoft GraphRAG 구현이 아니라, 해당 문제의식을 이슈 관리에 적용한 이슈 중심 혼합 관계 탐색 POC입니다.</p>
       <p>경진대회 운영안 기준 발표 15분, Q&amp;A 5분에 맞췄습니다.</p>
-      <p>모든 이슈·파일 경로·처리 기록은 합성 데이터입니다. 생성형 AI, 외부 API, 오픈소스 사용 내역은 11번 슬라이드에 명시했습니다.</p>
+      <p>모든 이슈·파일 경로·처리 기록은 합성 데이터입니다. 294건은 기능 시연 범위이며 제품 효과의 측정 표본이 아닙니다.</p>
     </aside>
 
     <div class="backup-demo" id="backupDemo" hidden role="dialog" aria-modal="true" aria-label="백업 시연">
