@@ -643,26 +643,27 @@
         content: "";
       }
 
-      .trace-evidence {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 14px;
-        margin-top: 13px;
+      .trace-outcome {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        margin-top: 14px;
+        padding-top: 18px;
+        border-top: 1px solid #2d3941;
       }
 
-      .trace-evidence span {
-        color: #7d8a93;
-        font-size: 11px;
-        line-height: 1.45;
-      }
-
-      .trace-evidence strong {
-        display: block;
-        margin-bottom: 5px;
+      .trace-outcome b {
         color: var(--amber);
         font-family: var(--mono);
-        font-size: clamp(20px, 1.65vw, 28px);
+        font-size: clamp(14px, 1.05vw, 18px);
         font-weight: 600;
+        letter-spacing: 0.05em;
+      }
+
+      .trace-outcome span {
+        color: #89969e;
+        font-size: clamp(13px, 0.98vw, 17px);
+        line-height: 1.5;
       }
 
       .deck-outline {
@@ -2649,7 +2650,7 @@
       <section
         class="slide"
         data-title="반복되는 원인 조사"
-        data-note="발표의 목적을 현업 문제로 고정합니다. 완료 이슈의 판단과 위험이 다음 담당자에게 이어지지 않아 유사 이슈마다 조사를 반복한다는 문제를 먼저 보여줍니다. 수치는 개인 경험이며 제품 성과가 아닙니다."
+        data-note="발표의 목적을 현업 문제로 고정합니다. 완료 이슈의 판단과 위험이 다음 담당자에게 이어지지 않아 유사 이슈마다 조사를 반복한다는 문제를 먼저 보여줍니다."
         role="group"
         aria-roledescription="슬라이드"
         aria-label="2. 반복되는 원인 조사"
@@ -2673,15 +2674,10 @@
                 <div class="trace-break">HISTORY LINK MISSING</div>
                 <div class="trace-row"><b>ISSUE B</b><div><strong>유사 증상 발생</strong><span>다음 담당자가 코드와 로그를 모으며 원인 조사부터 반복</span></div></div>
               </div>
-              <div class="trace-evidence">
-                <span><strong>약 10분</strong>히스토리를 알았다면</span>
-                <span><strong>로그 약 400건</strong>실제 원인 추적 과정</span>
-                <span><strong>주말 20:00</strong>분석을 마친 시각</span>
-              </div>
+              <div class="trace-outcome"><b>RESTART</b><span>과거 판단을 찾지 못한 채 원인 조사부터 다시 시작</span></div>
             </div>
           </div>
         </div>
-        <div class="screen-disclaimer">수치는 발표자의 개인 경험이며 Websidian 도입 성과가 아닙니다</div>
       </section>
 
       <section
@@ -2724,7 +2720,7 @@
       <section
         class="slide"
         data-title="흩어진 조직의 기억"
-        data-note="한 팀의 40~50명이라는 실제 규모를 기준으로 설명합니다. 기록 자체는 이슈·커밋·문서에 남지만, 이 기록들이 왜 연결되는지는 담당자의 머릿속에만 남는다는 구조적 원인을 보여줍니다."
+        data-note="기록 자체는 이슈·커밋·문서에 남지만, 이 기록들이 왜 연결되는지는 담당자의 머릿속에만 남는다는 구조적 원인을 보여줍니다."
         role="group"
         aria-roledescription="슬라이드"
         aria-label="4. 흩어진 조직의 기억"
@@ -2733,8 +2729,8 @@
           <div>
             <div class="slide-kicker">서론 · 원인 분석</div>
             <h2>기록은 여러 곳에 남고,<br /><span class="accent-coral">관계는 사람에게 남습니다</span></h2>
-            <p class="lead">한 팀만 해도 매주 40~50명이 이슈를 처리합니다. 타팀 영향과 과거 담당자의 판단까지 개인이 기억하기는 어렵습니다.</p>
-            <div class="memory-scale build" data-build>40-50<span>명 · 한 팀의 업무 기억</span></div>
+            <p class="lead">여러 담당자가 동시에 이슈를 처리합니다. 타팀 영향과 과거 담당자의 판단까지 개인이 기억하기는 어렵습니다.</p>
+            <div class="memory-scale build" data-build>매주<span>새로 쌓이는 업무 기억</span></div>
           </div>
           <div class="memory-map build" data-build aria-label="여러 저장소의 기록이 담당자의 기억에 의존하는 구조">
             <div class="memory-person"><b>담당자의 기억</b><span>관계를 설명하는 유일한 인덱스</span></div>
@@ -2745,7 +2741,6 @@
             <div class="memory-map-note">담당자 이동 → 연결 소실</div>
           </div>
         </div>
-        <div class="screen-disclaimer">40-50명은 발표자의 실제 팀 규모이며 제품 효과 수치가 아닙니다</div>
       </section>
 
       <section
