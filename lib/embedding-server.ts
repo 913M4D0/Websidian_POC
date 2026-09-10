@@ -1,4 +1,6 @@
-import { env } from 'cloudflare:workers';
+import { env, waitUntil } from 'cloudflare:workers';
+import { finishLlmRun, saveLlmRun, startLlmRun } from './llm-observability.ts';
+import { AiLimitError, reserveAiCall } from './llm-rate-limit.ts';
 import { MemoryArtifactError } from './memory-artifact.ts';
 
 export const embeddingPolicy = {
@@ -12,8 +14,10 @@ export const embeddingPolicy = {
 type EmbeddingEnvironment = {
   OPENROUTER_API_KEY?: string;
   OPENROUTER_EMBEDDING_MODEL?: string;
+  DB?: D1Database;
 };
 const configuration = () => env as unknown as EmbeddingEnvironment;
+const embeddingInFlight = new Set<string>();
 
 let catalogCache: { expires: number; promise: Promise<string> } | undefined;
 
@@ -185,6 +189,7 @@ function parseVectors(value: unknown, expected: number) {
 export async function embedTexts(
   inputs: string[],
   inputType: 'search_document' | 'search_query',
+  observability?: { actor: string; issueId?: string },
 ) {
   if (!inputs.length || inputs.length > embeddingPolicy.batchSize)
     throw new MemoryArtifactError(
@@ -192,11 +197,96 @@ export async function embedTexts(
     );
   if (inputs.some((input) => !input.trim() || input.length > 80_000))
     throw new MemoryArtifactError('임베딩 입력 크기를 확인해 주세요.');
-  const key = configuration().OPENROUTER_API_KEY?.trim();
-  if (!key)
-    throw new MemoryArtifactError('OpenRouter API 키 설정이 필요합니다.', 503);
-  const model = await verifiedEmbeddingModel();
+  const startedAt = Date.now();
+  const run = observability
+    ? startLlmRun({
+        ownerId: observability.actor,
+        issueId: observability.issueId ?? null,
+        lane:
+          inputType === 'search_query'
+            ? 'embedding-query'
+            : 'embedding-document',
+        requestedModelId: embeddingPolicy.modelId,
+        promptVersion: `embedding-${inputType}-v1`,
+        reasoningEffort: 'none',
+        evidenceCount: inputs.length,
+        inputCharacters: inputs.reduce(
+          (total, input) => total + input.length,
+          0,
+        ),
+        startedAtMs: startedAt,
+      })
+    : null;
+  let finalized = false;
+  let failureStage = 'preflight';
+  let attempts = 0;
+  let locked = false;
+  const lockKey = observability ? `${observability.actor}:${inputType}` : null;
+  const finalize = (
+    status: 'success' | 'error',
+    details: {
+      servedModelId?: string | null;
+      providerRequestId?: string | null;
+      promptTokens?: number | null;
+      totalTokens?: number | null;
+      providerCost?: number | null;
+    } = {},
+  ) => {
+    if (!run || finalized) return;
+    finalized = true;
+    const write = saveLlmRun(
+      configuration().DB,
+      finishLlmRun(run, {
+        servedModelId: details.servedModelId,
+        providerRequestId: details.providerRequestId,
+        usage: {
+          promptTokens: details.promptTokens ?? null,
+          completionTokens: null,
+          reasoningTokens: null,
+          cachedTokens: null,
+          totalTokens: details.totalTokens ?? null,
+          providerCost: details.providerCost ?? null,
+        },
+        attempts,
+        status,
+        fallback: false,
+        errorStage: status === 'error' ? failureStage : null,
+      }),
+    );
+    try {
+      waitUntil(write);
+    } catch {
+      void write;
+    }
+  };
+
   try {
+    if (lockKey && embeddingInFlight.has(lockKey))
+      throw new MemoryArtifactError(
+        '이미 같은 종류의 의미 색인 요청을 처리 중입니다.',
+        429,
+      );
+    if (lockKey) {
+      embeddingInFlight.add(lockKey);
+      locked = true;
+    }
+    const key = configuration().OPENROUTER_API_KEY?.trim();
+    if (!key)
+      throw new MemoryArtifactError(
+        'OpenRouter API 키 설정이 필요합니다.',
+        503,
+      );
+    failureStage = 'model-verification';
+    const model = await verifiedEmbeddingModel();
+    failureStage = 'rate-limit';
+    if (observability)
+      await reserveAiCall(
+        configuration().DB,
+        observability.actor,
+        inputType === 'search_query' ? 'embedding-query' : 'embedding-document',
+      );
+    failureStage = 'provider-fetch';
+    attempts = 1;
     const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
       method: 'POST',
       headers: {
@@ -220,6 +310,7 @@ export async function embedTexts(
       redirect: 'manual',
     });
     if (!response.ok) {
+      failureStage = 'provider-http';
       await response.body?.cancel();
       if (response.status === 429)
         throw new MemoryArtifactError(
@@ -238,9 +329,42 @@ export async function embedTexts(
         );
       throw new MemoryArtifactError('임베딩 요청을 완료하지 못했습니다.', 502);
     }
+    failureStage = 'output-parse';
     const envelope = await boundedJson(response, 16_000_000);
-    return { model, vectors: parseVectors(envelope, inputs.length) };
+    const object =
+      envelope && typeof envelope === 'object' && !Array.isArray(envelope)
+        ? (envelope as Record<string, unknown>)
+        : {};
+    const rawUsage =
+      object.usage &&
+      typeof object.usage === 'object' &&
+      !Array.isArray(object.usage)
+        ? (object.usage as Record<string, unknown>)
+        : {};
+    const safeMetric = (value: unknown) =>
+      typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ? value
+        : null;
+    const servedModelId =
+      typeof object.model === 'string' ? object.model : null;
+    const providerRequestId =
+      typeof object.id === 'string'
+        ? object.id
+        : response.headers.get('x-request-id') ||
+          response.headers.get('x-openrouter-request-id');
+    const result = { model, vectors: parseVectors(envelope, inputs.length) };
+    finalize('success', {
+      servedModelId,
+      providerRequestId,
+      promptTokens: safeMetric(rawUsage.prompt_tokens),
+      totalTokens: safeMetric(rawUsage.total_tokens),
+      providerCost: safeMetric(rawUsage.cost),
+    });
+    return result;
   } catch (error) {
+    finalize('error');
+    if (error instanceof AiLimitError)
+      throw new MemoryArtifactError(error.message, error.status);
     if (error instanceof MemoryArtifactError) throw error;
     if (
       error instanceof Error &&
@@ -248,5 +372,7 @@ export async function embedTexts(
     )
       throw new MemoryArtifactError('임베딩 요청 시간이 초과되었습니다.', 504);
     throw new MemoryArtifactError('임베딩 서비스 연결에 실패했습니다.', 503);
+  } finally {
+    if (locked && lockKey) embeddingInFlight.delete(lockKey);
   }
 }

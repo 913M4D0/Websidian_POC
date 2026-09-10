@@ -1,0 +1,217 @@
+@font-face {
+  font-family: "Malgun Gothic Local";
+  src: local("Malgun Gothic");
+}
+
+@page {
+  size: A4;
+  margin: 15mm 14mm 17mm;
+}
+
+:root {
+  color-scheme: light;
+  --ink: #172033;
+  --muted: #5d687a;
+  --line: #d9dee8;
+  --paper: #ffffff;
+  --panel: #f5f7fb;
+  --accent: #2563eb;
+  --accent-soft: #eaf1ff;
+  --success: #147d64;
+  --warning: #a66312;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Malgun Gothic Local", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-size: 9.2pt;
+  line-height: 1.58;
+  text-rendering: geometricPrecision;
+}
+
+body {
+  margin: 0;
+  max-width: none;
+}
+
+body::before {
+  content: "WEBSIDIAN  ·  SYNTHETIC POC EVIDENCE";
+  display: block;
+  margin: 0 0 11mm;
+  padding: 3.2mm 4mm;
+  border-left: 1.2mm solid var(--accent);
+  background: linear-gradient(90deg, var(--accent-soft), #f8faff 75%, #ffffff);
+  color: #17499c;
+  font-size: 8.3pt;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: #111827;
+  font-weight: 750;
+  line-height: 1.28;
+  break-after: avoid-page;
+}
+
+h1 {
+  margin: 0 0 5mm;
+  font-size: 24pt;
+  letter-spacing: -0.04em;
+}
+
+h1 + p {
+  color: var(--muted);
+}
+
+h2 {
+  margin: 9mm 0 3.2mm;
+  padding-bottom: 1.8mm;
+  border-bottom: 0.35mm solid #b9c6dd;
+  font-size: 15.5pt;
+  letter-spacing: -0.025em;
+}
+
+h3 {
+  margin: 5.5mm 0 2mm;
+  color: #1d4f91;
+  font-size: 11.5pt;
+}
+
+h4 {
+  margin: 4mm 0 1.5mm;
+  font-size: 10pt;
+}
+
+p,
+ul,
+ol,
+blockquote,
+pre,
+table {
+  margin-top: 0;
+  margin-bottom: 3.4mm;
+}
+
+ul,
+ol {
+  padding-left: 5.5mm;
+}
+
+li {
+  margin: 0 0 1.1mm;
+}
+
+strong {
+  color: #0f2f61;
+}
+
+a {
+  color: #1f5cc4;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+code {
+  border: 0.2mm solid #dbe2ef;
+  border-radius: 1mm;
+  background: #f2f5fa;
+  padding: 0.15mm 0.8mm;
+  color: #8f2f68;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 0.9em;
+}
+
+pre {
+  break-inside: avoid-page;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  border: 0.25mm solid #d9e0eb;
+  border-radius: 2mm;
+  background: #f7f9fc;
+  padding: 3mm;
+  color: #273449;
+}
+
+pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+blockquote {
+  margin-left: 0;
+  border-left: 1mm solid #75a5ff;
+  background: var(--accent-soft);
+  padding: 2.7mm 3.5mm;
+  color: #193f78;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-size: 7.7pt;
+  break-inside: auto;
+}
+
+thead {
+  display: table-header-group;
+}
+
+tr {
+  break-inside: avoid-page;
+}
+
+th,
+td {
+  border: 0.22mm solid var(--line);
+  padding: 1.8mm 2mm;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+th {
+  background: #eaf0fb;
+  color: #183d72;
+  font-weight: 700;
+}
+
+tbody tr:nth-child(even) td {
+  background: #fafbfe;
+}
+
+hr {
+  margin: 7mm 0;
+  border: 0;
+  border-top: 0.3mm solid var(--line);
+}
+
+img,
+svg {
+  max-width: 100%;
+}
+
+@media print {
+  a {
+    color: inherit;
+  }
+
+  h2,
+  h3,
+  table,
+  pre,
+  blockquote {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

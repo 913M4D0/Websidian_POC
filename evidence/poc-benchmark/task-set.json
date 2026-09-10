@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "websidian-poc-retrieval-v1",
+  "title": "Websidian 합성 이슈 검색·그래프 탐색 벤치마크",
+  "dataset": {
+    "path": "data/issues.json",
+    "expectedIssueCount": 294,
+    "expectedSyntheticIssueCount": 294,
+    "representativeRange": "WS-001..WS-024",
+    "backgroundRange": "WS-025..WS-294"
+  },
+  "queryProfiles": {
+    "baseline-text": {
+      "description": "기준 이슈의 제목과 본문만으로 완료 이슈를 평면 순위화합니다. 기준 이슈의 자료 식별자, 처리 이력, 태그는 사용하지 않습니다."
+    },
+    "websidian-search": {
+      "description": "제품의 issueText와 searchCompletedIssues를 그대로 사용해 원문·자료를 함께 순위화합니다."
+    },
+    "websidian-history": {
+      "description": "제품의 buildHistory를 그대로 사용해 상위 직접 결과에서 최대 2-hop으로 확장합니다."
+    }
+  },
+  "tasks": [
+    {
+      "taskId": "retry-rollback",
+      "scenario": "과거 해결·중대장애 롤백 이력 재사용",
+      "rootIssueId": "WS-008",
+      "participantPrompt": "파트너 주문 화면에서 재시도 후 주문이 두 번 접수됐습니다. 먼저 확인할 과거 기록과 안전한 조사·처리 방향을 근거 ID와 함께 제시하세요.",
+      "expectedDecision": "중복 주문을 임의 삭제하기 전에 승인 상태를 확인하고, 파트너 어댑터의 요청 식별자 전달과 공통 멱등 처리 모듈의 롤백·회귀 조건을 조사합니다."
+    },
+    {
+      "taskId": "intent-preservation",
+      "scenario": "과거에 확정된 기획 의도 확인과 불필요 개발 방지",
+      "rootIssueId": "WS-016",
+      "participantPrompt": "조직 개편 후 관리자 결재 조회에서 이전 부서명이 보입니다. 오류인지 의도된 보관 동작인지 판단하기 위해 확인할 기록과 다음 조치를 근거 ID와 함께 제시하세요.",
+      "expectedDecision": "완료 문서의 기안 당시 소속 보관 정책과 최신 조직개편 점검 결정을 확인한 뒤, 데이터 일괄 변경 전에 표시 안내 또는 별도 관리자 화면 범위를 검토합니다."
+    },
+    {
+      "taskId": "cross-team-side-effect",
+      "scenario": "최근 타팀 변경에서 파생된 영향 후보 발견",
+      "rootIssueId": "WS-024",
+      "participantPrompt": "전체 접수에는 있으나 오늘 접수 목록에서 일부 신청이 보이지 않습니다. 직접 증상과 표현이 다른 타팀 변경까지 포함해 조사할 기록과 경로를 근거 ID와 함께 제시하세요.",
+      "expectedDecision": "캐시·페이지 처리 같은 직접 후보를 함께 배제하면서 오늘 접수 API의 공통 날짜 유틸리티 의존성과 최근 패키지 배포, 타팀 UTC 기본값 변경을 우선 확인합니다."
+    }
+  ]
+}

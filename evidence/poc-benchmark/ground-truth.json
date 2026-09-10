@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "websidian-poc-retrieval-v1",
+  "labelingPolicy": {
+    "scope": "합성 대표 이슈의 원문·자료·처리 기록만 사용한 시나리오 관련성 판정",
+    "warning": "관련성 및 hop은 평가용 탐색 기대치이며 원인·인과관계의 확정이 아닙니다.",
+    "grades": {
+      "3": "핵심 판단 또는 핵심 위험을 직접 뒷받침",
+      "2": "조사 범위·대안 원인·운영 경계를 유의미하게 보강",
+      "1": "배제 여부를 확인할 가치가 있는 보조 기록"
+    }
+  },
+  "representativeIssueIds": [
+    "WS-001",
+    "WS-002",
+    "WS-003",
+    "WS-004",
+    "WS-005",
+    "WS-006",
+    "WS-007",
+    "WS-008",
+    "WS-009",
+    "WS-010",
+    "WS-011",
+    "WS-012",
+    "WS-013",
+    "WS-014",
+    "WS-015",
+    "WS-016",
+    "WS-017",
+    "WS-018",
+    "WS-019",
+    "WS-020",
+    "WS-021",
+    "WS-022",
+    "WS-023",
+    "WS-024"
+  ],
+  "scenarios": [
+    {
+      "taskId": "retry-rollback",
+      "rootIssueId": "WS-008",
+      "relevance": {
+        "WS-001": 3,
+        "WS-002": 2,
+        "WS-003": 2,
+        "WS-004": 2,
+        "WS-005": 3,
+        "WS-006": 3,
+        "WS-007": 3
+      },
+      "expectedDirectIssueIds": [
+        "WS-007",
+        "WS-001",
+        "WS-003",
+        "WS-004",
+        "WS-005"
+      ],
+      "expectedTwoHopPaths": [
+        {
+          "acceptedViaIssueIds": ["WS-007"],
+          "targetIssueId": "WS-002",
+          "evidence": [
+            "code:/partner/orders/submit-order.ts",
+            "code:/platform/idempotency/execute-once.ts"
+          ],
+          "rationale": "파트너 주문 어댑터의 적용 현황을 거쳐 공통 멱등 처리 모듈의 도입 기록을 확인합니다."
+        },
+        {
+          "acceptedViaIssueIds": ["WS-005"],
+          "targetIssueId": "WS-006",
+          "evidence": [
+            "doc:/commerce/incident-20260710",
+            "code:/platform/idempotency/execute-once.ts"
+          ],
+          "rationale": "동일 중복 승인 장애 기록을 거쳐 철회 버전과 장시간 지연 회귀 시험 보강을 확인합니다."
+        }
+      ]
+    },
+    {
+      "taskId": "intent-preservation",
+      "rootIssueId": "WS-016",
+      "relevance": {
+        "WS-009": 3,
+        "WS-010": 2,
+        "WS-011": 3,
+        "WS-012": 1,
+        "WS-013": 2,
+        "WS-014": 3,
+        "WS-015": 3
+      },
+      "expectedDirectIssueIds": [
+        "WS-015",
+        "WS-009",
+        "WS-014",
+        "WS-010",
+        "WS-013"
+      ],
+      "expectedTwoHopPaths": [
+        {
+          "acceptedViaIssueIds": ["WS-015"],
+          "targetIssueId": "WS-011",
+          "evidence": [
+            "doc:/people/reorganization-2026-h2-checklist",
+            "doc:/approval/completed-document-policy"
+          ],
+          "rationale": "조직개편 점검을 거쳐 이전 소속 표시가 동기화 오류가 아니라고 확인한 문의 기록을 봅니다."
+        },
+        {
+          "acceptedViaIssueIds": ["WS-015"],
+          "targetIssueId": "WS-012",
+          "evidence": [
+            "doc:/people/reorganization-2026-h2-checklist",
+            "doc:/approval/access-policy"
+          ],
+          "rationale": "조직개편 점검을 거쳐 표시용 스냅샷과 현재 조직 기반 접근 권한을 분리한 기록을 확인합니다."
+        }
+      ]
+    },
+    {
+      "taskId": "cross-team-side-effect",
+      "rootIssueId": "WS-024",
+      "relevance": {
+        "WS-017": 3,
+        "WS-018": 2,
+        "WS-019": 1,
+        "WS-020": 1,
+        "WS-021": 3,
+        "WS-022": 3,
+        "WS-023": 2
+      },
+      "expectedDirectIssueIds": [
+        "WS-019",
+        "WS-017",
+        "WS-022",
+        "WS-020",
+        "WS-023"
+      ],
+      "expectedTwoHopPaths": [
+        {
+          "acceptedViaIssueIds": ["WS-017", "WS-023"],
+          "targetIssueId": "WS-018",
+          "evidence": [
+            "code:/reception/api/today-receptions.ts",
+            "doc:/reception/business-day-policy"
+          ],
+          "rationale": "국내 업무일 기준 또는 경계 시각 저장 점검을 거쳐 API 시간대 표현 변경이 조회 기준을 바꾸지 않았는지 확인합니다."
+        },
+        {
+          "acceptedViaIssueIds": ["WS-022"],
+          "targetIssueId": "WS-021",
+          "evidence": [
+            "code:/reception/api/today-receptions.ts",
+            "code:/platform/dates/day-range.ts",
+            "doc:/platform/releases/common-dates-3.4.0"
+          ],
+          "rationale": "접수 서비스 정기 배포를 거쳐 타팀 공통 날짜 유틸리티의 UTC 기본값 변경을 조사 후보로 확인합니다."
+        }
+      ]
+    }
+  ]
+}

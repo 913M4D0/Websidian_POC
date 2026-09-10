@@ -96,6 +96,7 @@ export async function indexMemoryBatch(
       return embeddingDocument(issue, compiled ?? undefined);
     }),
     'search_document',
+    { actor },
   );
   const now = new Date().toISOString();
   pending.forEach((issue, index) => {
@@ -209,6 +210,7 @@ export async function compileAndIndexIssue(actor: string, issue: Issue) {
     const embedded = await embedTexts(
       [embeddingDocument(issue, compiled)],
       'search_document',
+      { actor, issueId: issue.id },
     );
     ready = {
       ...base,
@@ -277,7 +279,10 @@ export async function semanticScores(
   });
   if (!artifacts.length) return new Map<string, number>();
   const queryVector = (
-    await embedTexts([query.slice(0, 80_000)], 'search_query')
+    await embedTexts([query.slice(0, 80_000)], 'search_query', {
+      actor,
+      ...(excludeId ? { issueId: excludeId } : {}),
+    })
   ).vectors[0];
   return new Map(
     artifacts

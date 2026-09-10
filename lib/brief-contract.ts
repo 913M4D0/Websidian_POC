@@ -76,16 +76,11 @@ export function verifyRequestedModel(
   // OpenRouter documents null as accepting all gateway efforts; omission is NOT support.
   const efforts =
     reasoning.supported_efforts === null
-      ? ['medium']
+      ? ['max']
       : reasoning.supported_efforts;
-  const effort = Array.isArray(efforts)
-    ? ['medium', 'high', 'low', 'minimal', 'max', 'xhigh'].find((item) =>
-        efforts.includes(item),
-      )
-    : undefined;
-  if (!effort)
+  if (!Array.isArray(efforts) || !efforts.includes('max'))
     throw new BriefError(
-      '요청 모델의 균형 추론 강도를 확인하지 못했습니다.',
+      '요청 모델의 최대 추론 강도(max) 지원을 확인하지 못했습니다.',
       503,
     );
   const topProvider =
@@ -95,7 +90,7 @@ export function verifyRequestedModel(
   const advertisedMax = topProvider.max_completion_tokens;
   return {
     id: configuredId,
-    effort,
+    effort: 'max',
     maxTokens:
       typeof advertisedMax === 'number' && advertisedMax > 0
         ? Math.floor(advertisedMax)

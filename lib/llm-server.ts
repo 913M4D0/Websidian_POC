@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env, waitUntil } from 'cloudflare:workers';
 import {
   BriefError,
   verifyRequestedModel,
@@ -6,6 +6,13 @@ import {
   type VerifiedModel,
 } from './brief-contract.ts';
 import { llmPolicy } from './llm-policy.ts';
+import { AiLimitError, reserveAiCall } from './llm-rate-limit.ts';
+import {
+  finishLlmRun,
+  saveLlmRun,
+  startLlmRun,
+  type LlmRunStatus,
+} from './llm-observability.ts';
 import type { Issue } from './issues.ts';
 import {
   buildMemoryCompileRequest,
@@ -36,7 +43,6 @@ const configuration = () => env as unknown as LlmEnvironment;
 let catalogCache:
   | { expires: number; promise: Promise<VerifiedModel> }
   | undefined;
-let rateInitialization: Promise<unknown> | undefined;
 const inFlight = new Set<string>();
 
 type GenerationHooks = {
@@ -173,54 +179,6 @@ export async function getLlmStatus(): Promise<LlmStatus> {
   }
 }
 
-/** Durable request reservations, atomic across Worker isolates; failures consume a slot too. */
-async function reserveCall(
-  actor: string,
-  lane: 'analysis' | 'test-cases' | 'memory',
-) {
-  const db = configuration().DB;
-  if (!db)
-    throw new BriefError('AI 요청 제한 저장소가 연결되지 않았습니다.', 503);
-  rateInitialization ??= db
-    .prepare(`CREATE TABLE IF NOT EXISTS websidian_llm_limits (
-    owner_id TEXT NOT NULL, bucket TEXT NOT NULL, count INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL, PRIMARY KEY(owner_id, bucket)
-  )`)
-    .run()
-    .catch((error) => {
-      rateInitialization = undefined;
-      throw error;
-    });
-  await rateInitialization;
-  const now = Date.now();
-  await db
-    .prepare('DELETE FROM websidian_llm_limits WHERE expires_at < ?')
-    .bind(now)
-    .run();
-  for (const [duration, globalMaximum, laneMaximum] of [
-    [60_000, 12, 6],
-    [3_600_000, 120, 60],
-  ]) {
-    for (const [scope, maximum] of [
-      ['global', globalMaximum],
-      [lane, laneMaximum],
-    ] as const) {
-      const bucket = `${scope}:${duration}:${Math.floor(now / duration)}`;
-      const result = await db
-        .prepare(`INSERT INTO websidian_llm_limits (owner_id, bucket, count, expires_at)
-      VALUES (?, ?, 1, ?) ON CONFLICT(owner_id, bucket) DO UPDATE SET count = count + 1
-      WHERE count < ? RETURNING count`)
-        .bind(actor, bucket, now + duration * 2, maximum)
-        .first<{ count: number }>();
-      if (!result)
-        throw new BriefError(
-          'AI 요청이 많습니다. 잠시 후 다시 시도해 주세요.',
-          429,
-        );
-    }
-  }
-}
-
 const retryableProviderStatuses = new Set([408, 425, 500, 502, 503, 504]);
 
 /** Retry once only before any model output can have been emitted. */
@@ -229,8 +187,10 @@ async function fetchGeneration(
   startedAt: number,
   url: string,
   init: RequestInit,
+  onAttempt?: (attempts: number) => void,
 ) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    onAttempt?.(attempt + 1);
     try {
       const response = await fetch(url, init);
       if (
@@ -238,7 +198,7 @@ async function fetchGeneration(
         attempt > 0 ||
         !retryableProviderStatuses.has(response.status)
       )
-        return response;
+        return { response, attempts: attempt + 1 };
       logProviderFailure(operation, 'provider-retry', startedAt, {
         upstreamStatus: response.status,
         providerRequestId: providerRequestId(response),
@@ -389,27 +349,86 @@ async function generateIssueInsight(
   kind: 'analysis' | 'test-cases',
   hooks: GenerationHooks = {},
 ): Promise<IssueAnalysisResponse | IssueTestPlanResponse> {
-  throwIfGenerationAborted(hooks.signal);
-  const status = await getLlmStatus();
-  throwIfGenerationAborted(hooks.signal);
-  if (!status.ready) throw new BriefError(status.reason, 503);
   const lockKey = `${actor}:insight:${kind}:${context.rootIssue.id}`;
-  if (inFlight.has(lockKey))
-    throw new BriefError('이미 이 이슈의 AI 작업을 처리 중입니다.', 429);
-  const apiKey = configuration().OPENROUTER_API_KEY?.trim();
-  if (!apiKey) throw new BriefError('AI 서버 설정이 필요합니다.', 503);
-  inFlight.add(lockKey);
   const startedAt = Date.now();
   const profile =
     kind === 'analysis'
       ? llmPolicy.generation.analysis
       : llmPolicy.generation.testCases;
+  const promptVersion =
+    kind === 'analysis'
+      ? llmPolicy.promptVersions.analysis
+      : llmPolicy.promptVersions.testCases;
+  const run = startLlmRun({
+    ownerId: actor,
+    issueId: context.rootIssue.id,
+    lane: kind,
+    requestedModelId: llmPolicy.modelId,
+    promptVersion,
+    reasoningEffort: profile.effort,
+    evidenceCount: context.citationIds.length,
+    inputCharacters: JSON.stringify(context).length,
+    startedAtMs: startedAt,
+  });
+  let locked = false;
+  let finalized = false;
+  let failureStage = 'preflight';
+  let attempts = 0;
+  let servedModelId: string | null = null;
+  let requestId: string | null = null;
+  let firstContentAt: number | null = null;
+  let finishReason: string | null = null;
+  let usage: Parameters<typeof finishLlmRun>[1]['usage'] = null;
+
+  const finalize = (
+    status: LlmRunStatus,
+    fallback = false,
+    errorStage: string | null = null,
+  ) => {
+    if (finalized) return;
+    finalized = true;
+    const write = saveLlmRun(
+      configuration().DB,
+      finishLlmRun(run, {
+        servedModelId,
+        firstTokenAtMs: firstContentAt,
+        usage,
+        providerRequestId: requestId,
+        attempts,
+        finishReason,
+        status,
+        fallback,
+        errorStage,
+      }),
+    );
+    try {
+      waitUntil(write);
+    } catch {
+      void write;
+    }
+  };
+
   try {
+    throwIfGenerationAborted(hooks.signal);
+    const status = await getLlmStatus();
+    throwIfGenerationAborted(hooks.signal);
+    if (!status.ready) throw new BriefError(status.reason, 503);
+    if (inFlight.has(lockKey))
+      throw new BriefError('이미 이 이슈의 AI 작업을 처리 중입니다.', 429);
+    const apiKey = configuration().OPENROUTER_API_KEY?.trim();
+    if (!apiKey) throw new BriefError('AI 서버 설정이 필요합니다.', 503);
+    inFlight.add(lockKey);
+    locked = true;
+    failureStage = 'model-verification';
     const model = await verifiedModel();
     throwIfGenerationAborted(hooks.signal);
-    await reserveCall(actor, kind);
+    failureStage = 'rate-limit';
+    await reserveAiCall(configuration().DB, actor, kind);
     throwIfGenerationAborted(hooks.signal);
-    const response = await fetchGeneration(
+    const providerRequest = buildIssueInsightRequest(model, context, kind);
+    run.input.inputCharacters = JSON.stringify(providerRequest).length;
+    failureStage = 'provider-fetch';
+    const fetched = await fetchGeneration(
       kind,
       startedAt,
       'https://openrouter.ai/api/v1/chat/completions',
@@ -424,15 +443,22 @@ async function generateIssueInsight(
               : 'Websidian test cases',
           'X-OpenRouter-Metadata': 'enabled',
         },
-        body: JSON.stringify(buildIssueInsightRequest(model, context, kind)),
+        body: JSON.stringify(providerRequest),
         signal: generationSignal(profile.timeoutMs, hooks.signal),
         redirect: 'manual',
       },
+      (value) => {
+        attempts = value;
+      },
     );
+    const { response } = fetched;
+    attempts = fetched.attempts;
+    requestId = providerRequestId(response);
     if (!response.ok) {
+      failureStage = 'provider-http';
       logProviderFailure(kind, 'provider-http', startedAt, {
         upstreamStatus: response.status,
-        providerRequestId: providerRequestId(response),
+        providerRequestId: requestId,
       });
       await response.body?.cancel();
       if (response.status === 429)
@@ -447,11 +473,17 @@ async function generateIssueInsight(
         );
       throw new BriefError('AI가 결과 생성을 완료하지 못했습니다.', 502);
     }
+    failureStage = 'provider-stream';
     const streamed = await readOpenRouterTextStream(
       response,
       512_000,
       hooks.onDelta,
     );
+    servedModelId = streamed.servedModelId ?? servedModelId;
+    requestId = streamed.generationId ?? requestId;
+    firstContentAt = streamed.firstContentAt;
+    finishReason = streamed.finishReason;
+    usage = streamed.usage;
     const warning = streamWarning(streamed);
     if (warning)
       logProviderFailure(kind, 'stream-partial', startedAt, {
@@ -459,8 +491,9 @@ async function generateIssueInsight(
         completed: streamed.completed,
         providerError: streamed.providerError,
         receivedChars: streamed.text.length,
-        providerRequestId: providerRequestId(response),
+        providerRequestId: requestId,
       });
+    failureStage = 'output-parse';
     const common = {
       rootIssueId: context.rootIssue.id,
       evidenceIds: context.citationIds,
@@ -471,26 +504,37 @@ async function generateIssueInsight(
       engine: 'openrouter' as const,
       ...(warning ? { warning } : {}),
     };
-    return kind === 'analysis'
-      ? {
-          ...common,
-          kind,
-          analysis: parseDelimitedIssueAnalysis(
-            streamed.text,
-            context.citationIds,
-          ),
-        }
-      : {
-          ...common,
-          kind,
-          testPlan: parseDelimitedIssueTestPlan(
-            streamed.text,
-            context.citationIds,
-          ),
-        };
+    const result =
+      kind === 'analysis'
+        ? {
+            ...common,
+            kind,
+            analysis: parseDelimitedIssueAnalysis(
+              streamed.text,
+              context.citationIds,
+            ),
+          }
+        : {
+            ...common,
+            kind,
+            testPlan: parseDelimitedIssueTestPlan(
+              streamed.text,
+              context.citationIds,
+            ),
+          };
+    finalize(warning ? 'partial' : 'success');
+    return result;
   } catch (error) {
+    const cancelled = Boolean(hooks.signal?.aborted);
+    finalize(
+      cancelled ? 'cancelled' : 'fallback',
+      !cancelled,
+      failureStage,
+    );
     if (hooks.signal?.aborted) throw error;
     if (error instanceof BriefError) throw error;
+    if (error instanceof AiLimitError)
+      throw new BriefError(error.message, error.status);
     if (
       error instanceof Error &&
       ['AbortError', 'TimeoutError'].includes(error.name)
@@ -501,7 +545,7 @@ async function generateIssueInsight(
       );
     throw new BriefError('AI 서비스 연결에 실패했습니다.', 503);
   } finally {
-    inFlight.delete(lockKey);
+    if (locked) inFlight.delete(lockKey);
   }
 }
 
@@ -579,19 +623,80 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
       '처리 완료된 이슈만 AI 기억으로 컴파일할 수 있습니다.',
       409,
     );
-  const status = await getLlmStatus();
-  if (!status.ready) throw new MemoryArtifactError(status.reason, 503);
   const lockKey = `${actor}:memory:${issue.id}`;
-  if (inFlight.has(lockKey))
-    throw new MemoryArtifactError('이미 AI 작업을 처리 중입니다.', 429);
-  const apiKey = configuration().OPENROUTER_API_KEY?.trim();
-  if (!apiKey) throw new MemoryArtifactError('AI 서버 설정이 필요합니다.', 503);
-  inFlight.add(lockKey);
   const startedAt = Date.now();
+  const run = startLlmRun({
+    ownerId: actor,
+    issueId: issue.id,
+    lane: 'memory',
+    requestedModelId: llmPolicy.modelId,
+    promptVersion: llmPolicy.promptVersions.memory,
+    reasoningEffort: llmPolicy.generation.memory.effort,
+    evidenceCount:
+      1 +
+      new Set([
+        ...(issue.memory?.relatedIssueIds ?? []),
+        ...(issue.resolution.evidenceIssueIds ?? []),
+      ]).size,
+    inputCharacters: JSON.stringify(issue).length,
+    startedAtMs: startedAt,
+  });
+  let locked = false;
+  let finalized = false;
+  let failureStage = 'preflight';
+  let attempts = 0;
+  let servedModelId: string | null = null;
+  let requestId: string | null = null;
+  let firstContentAt: number | null = null;
+  let finishReason: string | null = null;
+  let usage: Parameters<typeof finishLlmRun>[1]['usage'] = null;
+
+  const finalize = (
+    status: LlmRunStatus,
+    fallback = false,
+    errorStage: string | null = null,
+  ) => {
+    if (finalized) return;
+    finalized = true;
+    const write = saveLlmRun(
+      configuration().DB,
+      finishLlmRun(run, {
+        servedModelId,
+        firstTokenAtMs: firstContentAt,
+        usage,
+        providerRequestId: requestId,
+        attempts,
+        finishReason,
+        status,
+        fallback,
+        errorStage,
+      }),
+    );
+    try {
+      waitUntil(write);
+    } catch {
+      void write;
+    }
+  };
+
   try {
+    const status = await getLlmStatus();
+    if (!status.ready) throw new MemoryArtifactError(status.reason, 503);
+    if (inFlight.has(lockKey))
+      throw new MemoryArtifactError('이미 AI 작업을 처리 중입니다.', 429);
+    const apiKey = configuration().OPENROUTER_API_KEY?.trim();
+    if (!apiKey)
+      throw new MemoryArtifactError('AI 서버 설정이 필요합니다.', 503);
+    inFlight.add(lockKey);
+    locked = true;
+    failureStage = 'model-verification';
     const model = await verifiedModel();
-    await reserveCall(actor, 'memory');
-    const response = await fetchGeneration(
+    failureStage = 'rate-limit';
+    await reserveAiCall(configuration().DB, actor, 'memory');
+    const providerRequest = buildMemoryCompileRequest(model, issue);
+    run.input.inputCharacters = JSON.stringify(providerRequest).length;
+    failureStage = 'provider-fetch';
+    const fetched = await fetchGeneration(
       'memory',
       startedAt,
       'https://openrouter.ai/api/v1/chat/completions',
@@ -603,15 +708,22 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
           'X-OpenRouter-Title': 'Websidian memory compiler',
           'X-OpenRouter-Metadata': 'enabled',
         },
-        body: JSON.stringify(buildMemoryCompileRequest(model, issue)),
+        body: JSON.stringify(providerRequest),
         signal: AbortSignal.timeout(llmPolicy.generation.memory.timeoutMs),
         redirect: 'manual',
       },
+      (value) => {
+        attempts = value;
+      },
     );
+    const { response } = fetched;
+    attempts = fetched.attempts;
+    requestId = providerRequestId(response);
     if (!response.ok) {
+      failureStage = 'provider-http';
       logProviderFailure('memory', 'provider-http', startedAt, {
         upstreamStatus: response.status,
-        providerRequestId: providerRequestId(response),
+        providerRequestId: requestId,
       });
       await response.body?.cancel();
       if (response.status === 429)
@@ -629,7 +741,13 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
         502,
       );
     }
+    failureStage = 'provider-stream';
     const streamed = await readOpenRouterTextStream(response);
+    servedModelId = streamed.servedModelId ?? servedModelId;
+    requestId = streamed.generationId ?? requestId;
+    firstContentAt = streamed.firstContentAt;
+    finishReason = streamed.finishReason;
+    usage = streamed.usage;
     const warning = streamWarning(streamed);
     if (warning)
       logProviderFailure('memory', 'stream-partial', startedAt, {
@@ -637,8 +755,9 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
         completed: streamed.completed,
         providerError: streamed.providerError,
         receivedChars: streamed.text.length,
-        providerRequestId: providerRequestId(response),
+        providerRequestId: requestId,
       });
+    failureStage = warning ? 'stream-partial' : 'output-parse';
     const compiled = parseDelimitedMemory(streamed.text);
     const display = parseDelimitedDisplay(streamed.text, 'memory');
     if (
@@ -651,7 +770,7 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
         'AI 기억 평문이 완결되지 않아 원문 기반 기억으로 전환합니다.',
         502,
       );
-    return {
+    const result = {
       compiled,
       content: streamed.text,
       modelId: model.id,
@@ -659,9 +778,14 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
       compiledAt: new Date().toISOString(),
       ...(warning ? { warning } : {}),
     };
+    finalize('success');
+    return result;
   } catch (error) {
+    finalize('fallback', true, failureStage);
     if (error instanceof MemoryArtifactError) throw error;
     if (error instanceof BriefError)
+      throw new MemoryArtifactError(error.message, error.status);
+    if (error instanceof AiLimitError)
       throw new MemoryArtifactError(error.message, error.status);
     if (
       error instanceof Error &&
@@ -673,6 +797,6 @@ export async function compileIssueMemory(actor: string, issue: Issue) {
       );
     throw new MemoryArtifactError('AI 기억 서비스 연결에 실패했습니다.', 503);
   } finally {
-    inFlight.delete(lockKey);
+    if (locked) inFlight.delete(lockKey);
   }
 }

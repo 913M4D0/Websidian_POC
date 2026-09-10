@@ -1363,6 +1363,90 @@
         letter-spacing: 0.05em;
       }
 
+      .benchmark-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 28px;
+      }
+
+      .benchmark-card {
+        position: relative;
+        min-height: 152px;
+        padding: 22px 24px;
+        overflow: hidden;
+        border: 1px solid #33414a;
+        border-radius: 7px;
+        background: linear-gradient(145deg, rgba(22, 29, 34, 0.96), rgba(12, 17, 21, 0.9));
+      }
+
+      .benchmark-card::before {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 3px;
+        background: var(--mint);
+        content: "";
+      }
+
+      .benchmark-card > b {
+        display: block;
+        margin-bottom: 14px;
+        color: #9ba8af;
+        font-family: var(--mono);
+        font-size: clamp(11px, 0.85vw, 14px);
+        letter-spacing: 0.05em;
+      }
+
+      .benchmark-value {
+        display: flex;
+        gap: 13px;
+        align-items: baseline;
+        color: #f2f6f7;
+        font-family: var(--mono);
+        font-size: clamp(25px, 2.35vw, 42px);
+        font-weight: 700;
+        letter-spacing: -0.06em;
+      }
+
+      .benchmark-value i {
+        color: #5d6a72;
+        font-size: 0.65em;
+        font-style: normal;
+      }
+
+      .benchmark-value strong {
+        color: var(--mint);
+        font-weight: 700;
+      }
+
+      .benchmark-card > span {
+        display: block;
+        margin-top: 10px;
+        color: #7f8d95;
+        font-size: clamp(12px, 0.9vw, 15px);
+      }
+
+      .benchmark-card > span strong {
+        color: var(--amber);
+        font-family: var(--mono);
+      }
+
+      .benchmark-evidence {
+        display: flex;
+        justify-content: space-between;
+        gap: 26px;
+        margin-top: 18px;
+        padding-top: 15px;
+        border-top: 1px solid #2c3740;
+        color: #74828a;
+        font-family: var(--mono);
+        font-size: clamp(10px, 0.72vw, 13px);
+      }
+
+      .benchmark-evidence strong {
+        color: var(--amber);
+      }
+
       .limits-layout {
         display: grid;
         grid-template-columns: 0.82fr 1.18fr;
@@ -2550,6 +2634,19 @@
           grid-row: 2;
         }
 
+        .benchmark-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .benchmark-card {
+          min-height: 118px;
+        }
+
+        .benchmark-evidence {
+          flex-direction: column;
+          gap: 7px;
+        }
+
         .prompt-body {
           min-height: 240px;
         }
@@ -2979,29 +3076,29 @@
 
       <section
         class="slide"
-        data-title="기대효과와 검증 지표"
-        data-note="합성 POC의 숫자를 성과처럼 제시하지 않습니다. 현업 파일럿 전후에 같은 기준으로 측정할 네 가지 방향을 보여주고, 현재는 가설이라는 점을 분명히 말합니다."
+        data-title="자체 벤치마크 결과"
+        data-note="실제 증권 운영 자료를 공개하거나 외부 AI에 보내지 않기 위해 실무 유사 합성 이슈 294건으로 자체 벤치마크했습니다. 실제 현업 생산성 수치가 아니라 검색 순위 기반 대리지표입니다. 기준선 대비 핵심 근거 전체 도달 순위 17건에서 6.67건, Recall@10 85.71%에서 100%, 유효근거 밀도 60%에서 100%, AI 문맥 251건에서 7건입니다. 엄격한 2-hop 경로는 83.33%로 한 건의 실패를 숨기지 않았습니다."
         role="group"
         aria-roledescription="슬라이드"
-        aria-label="13. 기대효과와 검증 지표"
+        aria-label="13. 자체 벤치마크 결과"
       >
         <div class="slide-inner outcome-layout">
-          <div class="slide-kicker">결론 · 기대효과</div>
-          <h2>효과는 네 가지 운영 지표로<br /><span class="accent-mint">현업에서 검증</span>하겠습니다</h2>
-          <div class="outcome-tracks">
-            <div class="outcome-track build" data-build><b>첫 유효 이력 도달 시간</b><i></i><span>탐색 시간 ↓</span></div>
-            <div class="outcome-track build" data-build><b>과거 판단의 재사용</b><i></i><span>중복·불필요 개발 ↓</span></div>
-            <div class="outcome-track build" data-build><b>롤백 조건의 테스트 반영</b><i></i><span>회귀 확인 누락 ↓</span></div>
-            <div class="outcome-track build" data-build><b>공통 자료 경로의 발견</b><i></i><span>타팀 영향 후보 조기 발견</span></div>
+          <div class="slide-kicker">결론 · 자체 벤치마크 관측값</div>
+          <h2 style="max-width:29ch">실제 자료 대신 같은 조건에서<br /><span class="accent-mint">찾아야 할 근거의 양과 질</span>을 측정했습니다</h2>
+          <div class="benchmark-grid">
+            <div class="benchmark-card build" data-build><b>핵심 근거 모두 도달 · 문서 순위</b><div class="benchmark-value">17.00 <i>→</i> <strong>6.67건</strong></div><span>확인 후보 <strong>60.78% 감소</strong> · 시간 절감률 아님</span></div>
+            <div class="benchmark-card build" data-build><b>관련 완료 이력 회수 · RECALL@10</b><div class="benchmark-value">85.71 <i>→</i> <strong>100%</strong></div><span>대표 세 과제의 관련 이력 21건 기준</span></div>
+            <div class="benchmark-card build" data-build><b>TOP-10 유효 근거 밀도</b><div class="benchmark-value">60.00 <i>→</i> <strong>100%</strong></div><span>비관련 결과 비율 <strong>40% → 0%</strong></span></div>
+            <div class="benchmark-card build" data-build><b>AI에 전달한 완료 이력</b><div class="benchmark-value">251 <i>→</i> <strong>7건</strong></div><span>전체 비교 문맥 대비 문자수 <strong>3.59%</strong></span></div>
           </div>
-          <div class="measurement-disclaimer build" data-build><span><strong>BASELINE → PILOT</strong> 동일 유형 이슈의 전후 비교로 측정</span><span>현재 수치는 성과가 아니라 <strong>측정 전 가설</strong>입니다</span></div>
+          <div class="benchmark-evidence build" data-build><span>합성 이슈 294건 · 대표 과제 n=3 · 방법별 100회 · 독립 qrels</span><span>엄격 2-hop 경로 <strong>83.33%</strong> · 실패 1건 공개</span><span><strong>실제 운영 생산성·비용 성과 아님</strong></span></div>
         </div>
       </section>
 
       <section
         class="slide"
         data-title="현재 POC의 한계"
-        data-note="현재 구현 범위와 전사 적용 전에 검증할 운영 범위를 분리합니다. 251은 완료 단계 노드 수이지 AI가 모두 컴파일한 수가 아니며, GitHub는 수동 단방향 스냅샷입니다."
+        data-note="현재 구현과 자체 벤치마크의 범위, 전사 적용 전에 검증할 운영 범위를 분리합니다. 실제 증권 업무 자료는 고객·거래·장애·내부 구조의 보안 위험 때문에 사용하지 않았고, 소스·합성 데이터·측정법과 실패 결과를 공개해 재현성을 확보합니다."
         role="group"
         aria-roledescription="슬라이드"
         aria-label="14. 현재 POC의 한계"
@@ -3018,6 +3115,7 @@
                 <div class="limit-item"><i>02</i><span>완료·기억 단계 251건 · 진행 43건 <small style="color:#66747d">(AI 컴파일 수 아님)</small></span></div>
                 <div class="limit-item"><i>03</i><span>대표 24건 GitHub 바인딩 · 수동 단방향 가져오기</span></div>
                 <div class="limit-item"><i>04</i><span>요청 시 AI 보조 · 실패해도 원문 기반 기억 유지</span></div>
+                <div class="limit-item"><i>05</i><span>합성 자체 벤치마크 · 소스·정답셋·실패 결과 공개</span></div>
               </div>
             </div>
             <div class="limit-column production build" data-build>

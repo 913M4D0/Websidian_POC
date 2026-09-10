@@ -22,20 +22,19 @@ const catalog = {
   ],
 };
 
-void test('model selection preserves exact Luna while choosing balanced reasoning', () => {
+void test('model selection preserves exact Luna and requires maximum reasoning', () => {
   assert.deepEqual(verifyRequestedModel(catalog, 'openai/gpt-5.6-luna'), {
     id: 'openai/gpt-5.6-luna',
-    effort: 'medium',
+    effort: 'max',
     maxTokens: 128000,
   });
   const higherMissing = structuredClone(catalog);
   higherMissing.data[0].reasoning.supported_efforts = ['medium', 'high'];
   higherMissing.data[0].top_provider.max_completion_tokens = 8192;
-  assert.deepEqual(verifyRequestedModel(higherMissing, 'openai/gpt-5.6-luna'), {
-    id: 'openai/gpt-5.6-luna',
-    effort: 'medium',
-    maxTokens: 8192,
-  });
+  assert.throws(
+    () => verifyRequestedModel(higherMissing, 'openai/gpt-5.6-luna'),
+    BriefError,
+  );
   assert.throws(
     () => verifyRequestedModel(catalog, 'openai/gpt-5.6-luna-pro'),
     BriefError,
@@ -57,15 +56,18 @@ void test('model selection preserves exact Luna while choosing balanced reasonin
   );
 });
 
-void test('every active AI path uses a bounded demo-safe generation profile', () => {
+void test('every active AI path uses the requested maximum reasoning profile', () => {
   assert.deepEqual(llmPolicy.generation, {
-    analysis: { effort: 'medium', maxTokens: 6_000, timeoutMs: 60_000 },
-    testCases: { effort: 'medium', maxTokens: 8_000, timeoutMs: 75_000 },
-    memory: { effort: 'medium', maxTokens: 3_000, timeoutMs: 45_000 },
+    analysis: { effort: 'max', maxTokens: 16_000, timeoutMs: 180_000 },
+    testCases: { effort: 'max', maxTokens: 16_000, timeoutMs: 180_000 },
+    memory: { effort: 'max', maxTokens: 16_000, timeoutMs: 180_000 },
   });
   assert.ok(
     Object.values(llmPolicy.generation).every(
-      (profile) => profile.maxTokens <= 8_000 && profile.timeoutMs <= 75_000,
+      (profile) =>
+        profile.effort === 'max' &&
+        profile.maxTokens === 16_000 &&
+        profile.timeoutMs === 180_000,
     ),
   );
 });

@@ -3,6 +3,17 @@
 웹에서 이슈를 만들고 처리하며, 완료된 기록을 다음 업무의 히스토리로 재사용하는 POC.
 GitHub는 선택적인 외부 연결 예시일 뿐이며, 이슈 생성·탐색·처리에 GitHub 계정이나 저장소가 필요하지 않다.
 
+> [!IMPORTANT]
+> **공개 범위와 주장 경계**
+>
+> - 이 저장소는 개인이 구현한 **실무 유사 POC**다. 회사의 공식 제품, 승인된 운영 서비스 또는 전사 도입 사례가 아니다.
+> - 기본 데이터는 대표 24건과 일반 270건으로 구성된 **합성 이슈 294건**이다. 실제 회사 이슈, 고객정보, 개인정보, 운영 코드·문서 또는 영업기밀을 재현한 자료가 아니다.
+> - 데이터 건수·테스트 통과 수처럼 저장소에서 직접 확인되는 값은 구현 사실이다. 시간 절감률·정확도·비용 효과 등 별도의 정량값은 측정 조건과 표본을 명시한 POC 결과에만 적용되며, 실제 운영 성과나 회사 전체의 효과를 뜻하지 않는다.
+> - 기획·구현·테스트·문서화에는 생성형 AI를 보조 도구로 사용했다. 실행 중 AI 기능은 사용자가 요청할 때만 OpenRouter를 통해 외부 모델을 호출하며, 결과의 채택과 업무 판단 책임은 사용자에게 있다.
+> - 소스와 합성 데이터를 공개해 구조와 POC를 검토·재현할 수 있게 했지만, 현재 저장소에는 `LICENSE`가 없다. 권리 귀속과 제3자 구성요소의 조건을 확인하기 전까지 공개 열람을 별도의 사용·수정·재배포 허락으로 해석해서는 안 된다.
+>
+> 세부 고지: [합성 데이터](docs/SYNTHETIC_DATA_STATEMENT.md) · [AI 사용](docs/AI_USAGE_DISCLOSURE.md) · [보안과 개인정보](docs/SECURITY_AND_PRIVACY.md)
+
 ## 제품 흐름
 
 1. **신규 이슈 생성**: 원문, 발생일, 담당 팀, 자유 분류·태그·속성, 관련 자료를 저장한다.
@@ -80,6 +91,7 @@ LLM 결과와 벡터는 `websidian_memory_artifacts`에 별도로 저장하며 �
 | `GET/POST /api/memory/index`           | 의미 색인 상태 조회 / 완료 기억을 최대 32건씩 사용자 실행 색인                     |
 | `POST /api/issues/:id/memory/compile`  | 완료 이슈의 Luna 파생 기억·임베딩을 멱등 생성                                      |
 | `POST /api/integrations/github/import` | 공개/권한 있는 GitHub 이슈·댓글을 단방향 스냅샷으로 가져오기                       |
+| `GET /api/metrics/llm`                 | 현재 사용자 범위의 내용 없는 AI 측정 로그 조회, `?format=csv`로 CSV 내보내기        |
 
 완료 요청의 `resources`는 기존 자료 식별자를 덮어쓰지 않고 새 자료만 추가한다.
 `evidenceIssueIds`는 해당 사용자가 접근 가능한 완료 이슈만 허용한다.
@@ -100,7 +112,7 @@ LLM 결과와 벡터는 `websidian_memory_artifacts`에 별도로 저장하며 �
 | `OPENROUTER_EMBEDDING_MODEL` | `qwen/qwen3-embedding-8b`                    |
 
 모델 ID는 2026-09-04 [OpenRouter 공식 모델 목록](https://openrouter.ai/api/v1/models)에서 확인했으며 런타임에도 재확인한다.
-지원된 추론 강도 중 가장 높은 값을 선택한다. 현재 확인된 최대값은 `max`다.
+지원 여부를 런타임에 확인한 뒤 `max` 추론을 사용하며, `max`를 확인할 수 없으면 더 낮은 강도로 묵시적 대체하지 않는다.
 모델별 지원값을 확인하는 방법과 `reasoning.effort`의 의미는 [공식 추론 문서](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)를 따른다.
 다른 모델·별도 Pro 모델로 자동 대체하지 않는다.
 
@@ -109,7 +121,7 @@ LLM 결과와 벡터는 `websidian_memory_artifacts`에 별도로 저장하며 �
 - 원문과 질문은 비신뢰 자료로 취급하며 내부 지시를 실행하거나 도구를 호출하지 않는다.
 - 근거는 서버가 자동 수집한 접근 가능한 완료 이슈의 발췌문이며, 조회한 모든 기록이 모델에 전달되는 것은 아니다.
 - 임의 업무 분류 게이트·추가 내용 필터는 두지 않는다. 개인정보·접근 권한·제공자의 필수 정책은 유지한다.
-- 비용 보호를 위해 추론을 포함한 출력 상한 16,000토큰, 생성 요청 180초, 사용자당 1분 3회·1시간 18회 제한이 있다. 분석→테스트→완료 컴파일 시연을 한 번에 수행할 수 있으며, 모델이 공지한 출력 한도가 더 낮으면 그 한도를 따른다.
+- 최대 추론 요청을 유지하되 비정상적 무한 생성은 막기 위해 분석·테스트 케이스·파생 기억 모두 출력 16,000토큰·180초 상한을 둔다. 사용자별 호출 제한은 전체 1분 12회·1시간 120회이며, 같은 기능은 1분 6회·1시간 60회다. 실패한 외부 호출도 예약된 한도를 사용하며, 모델이 공지한 출력 한도가 더 낮으면 그 한도를 따른다.
 - 모델·키 설정을 확인해도 키 권한·잔액 및 실제 생성 품질은 유료 요청 전에는 검증되지 않는다.
 - 자동 검증은 유료 LLM 생성을 호출하지 않으며, 실제 생성은 사용자가 분석·테스트·기억 생성 기능을 실행할 때만 요청한다.
 - 의미 색인은 32건 단위의 명시적 버튼으로만 실행한다. `data_collection: deny`, `zdr: true`를 요청하고 같은 임베딩 모델·차원만 비교한다. 모델 변경 시 전체 재색인이 필요하다.
@@ -137,6 +149,18 @@ npx oxlint components/memory-universe.tsx components/issue-graph.tsx lib app/api
 node scripts/smoke-local.mjs
 npm run build
 ```
+
+### 합성 자체 벤치마크
+
+실제 증권 운영 이슈는 보안상 사용하지 않습니다. 대신 대표 24건과 배경 270건의 완전 합성 데이터에서 텍스트 기준선과 현재 제품 검색·2-hop 탐색을 같은 정답셋으로 비교합니다.
+
+```powershell
+node --experimental-strip-types scripts/eval-retrieval.mjs `
+  --iterations 100 `
+  --output-dir evidence/poc-benchmark/results
+```
+
+측정 방법과 주장 범위는 [프로토콜](evidence/poc-benchmark/protocol.md), 채점식은 [채점 기준](evidence/poc-benchmark/scoring-rubric.md), 현재 결과와 실패 항목은 [결과 요약](evidence/poc-benchmark/results-summary.md)에 공개합니다. 문서 확인 수·근거 밀도·컨텍스트 문자수는 생산성 **대리지표**이며 실제 사용자 시간·비용 절감률로 환산하지 않습니다.
 
 Sites의 로그인은 POC 작업공간 접근용이며 GitHub 인증이 아니다.
 `smoke-local.mjs`는 localhost:3000 전용이며 유료 AI가 준비되지 않은 상태에서만 실행한다.

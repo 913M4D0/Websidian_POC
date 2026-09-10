@@ -1,14 +1,22 @@
 import { BriefError } from './brief-contract.ts';
+import type { LlmUsage } from './llm-observability.ts';
 
 export type OpenRouterStreamResult = {
   text: string;
   finishReason: string | null;
   completed: boolean;
   providerError: boolean;
+  firstContentAt: number | null;
+  servedModelId: string | null;
+  generationId: string | null;
+  usage: LlmUsage;
 };
 
 type StreamEnvelope = {
+  id?: unknown;
+  model?: unknown;
   error?: unknown;
+  usage?: unknown;
   choices?: Array<{
     delta?: { content?: unknown };
     message?: { content?: unknown };
@@ -36,6 +44,48 @@ export async function readOpenRouterTextStream(
   let providerError = false;
   let received = 0;
   let contentMode: 'delta' | 'message' | null = null;
+  let firstContentAt: number | null = null;
+  let servedModelId: string | null = null;
+  let generationId: string | null = null;
+  let usage: LlmUsage = {
+    promptTokens: null,
+    completionTokens: null,
+    reasoningTokens: null,
+    cachedTokens: null,
+    totalTokens: null,
+    providerCost: null,
+  };
+
+  const nonNegativeNumber = (value: unknown) =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? value
+      : null;
+
+  const readUsage = (value: unknown): LlmUsage | null => {
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      return null;
+    const raw = value as Record<string, unknown>;
+    const completionDetails =
+      raw.completion_tokens_details &&
+      typeof raw.completion_tokens_details === 'object' &&
+      !Array.isArray(raw.completion_tokens_details)
+        ? (raw.completion_tokens_details as Record<string, unknown>)
+        : {};
+    const promptDetails =
+      raw.prompt_tokens_details &&
+      typeof raw.prompt_tokens_details === 'object' &&
+      !Array.isArray(raw.prompt_tokens_details)
+        ? (raw.prompt_tokens_details as Record<string, unknown>)
+        : {};
+    return {
+      promptTokens: nonNegativeNumber(raw.prompt_tokens),
+      completionTokens: nonNegativeNumber(raw.completion_tokens),
+      reasoningTokens: nonNegativeNumber(completionDetails.reasoning_tokens),
+      cachedTokens: nonNegativeNumber(promptDetails.cached_tokens),
+      totalTokens: nonNegativeNumber(raw.total_tokens),
+      providerCost: nonNegativeNumber(raw.cost),
+    };
+  };
 
   const processLine = (line: string) => {
     const normalized = line.endsWith('\r') ? line.slice(0, -1) : line;
@@ -57,6 +107,11 @@ export async function readOpenRouterTextStream(
       providerError = true;
       return;
     }
+    if (typeof envelope.id === 'string' && envelope.id.trim())
+      generationId = envelope.id.trim().slice(0, 160);
+    if (typeof envelope.model === 'string' && envelope.model.trim())
+      servedModelId = envelope.model.trim().slice(0, 160);
+    usage = readUsage(envelope.usage) ?? usage;
     const choice = envelope.choices?.[0];
     const delta = choice?.delta?.content;
     const message = choice?.message?.content;
@@ -75,6 +130,7 @@ export async function readOpenRouterTextStream(
       content = cleanMessage;
     }
     if (content) {
+      firstContentAt ??= Date.now();
       text += content;
       onDelta?.(content);
     }
@@ -113,5 +169,14 @@ export async function readOpenRouterTextStream(
         : 'AI가 표시할 수 있는 평문을 반환하지 않았습니다.',
       502,
     );
-  return { text: cleaned, finishReason, completed, providerError };
+  return {
+    text: cleaned,
+    finishReason,
+    completed,
+    providerError,
+    firstContentAt,
+    servedModelId,
+    generationId,
+    usage,
+  };
 }

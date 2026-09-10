@@ -45,12 +45,12 @@ void test('compiled memory is strict, bounded, and free-form without mutating th
   assert.equal(parsed.facets[0].name, '확인 성격');
   assert.throws(() => parseCompiledMemory({ ...parsed, answer: 'injected' }));
   const request = buildMemoryCompileRequest(
-    { id: 'openai/gpt-5.6-luna', effort: 'medium', maxTokens: 128000 },
+    { id: 'openai/gpt-5.6-luna', effort: 'max', maxTokens: 128000 },
     issue,
   );
-  assert.equal(request.reasoning.effort, 'medium');
+  assert.equal(request.reasoning.effort, 'max');
   assert.equal(request.stream, true);
-  assert.equal(request.max_tokens, 3000);
+  assert.equal(request.max_tokens, 16000);
   assert.equal(request.service_tier, 'priority');
   assert.equal(request.provider.allow_fallbacks, true);
   assert.equal(request.provider.sort, 'latency');

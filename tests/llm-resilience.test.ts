@@ -33,6 +33,7 @@ void test('OpenRouter SSE text survives arbitrary chunk boundaries and partial s
     'data: not-json\n\n',
     'data: {"choices":[{"delta":{"content":" 검증"},"finish_reason":"length"}]}\n\n',
     'data: {"error":{"code":502}}\n\n',
+    'data: {"id":"gen-test","model":"openai/gpt-5.6-luna","choices":[],"usage":{"prompt_tokens":120,"completion_tokens":35,"total_tokens":155,"cost":0.0042,"completion_tokens_details":{"reasoning_tokens":11},"prompt_tokens_details":{"cached_tokens":20}}}\n\n',
     'data: [DONE]\n\n',
   ]);
   const result = await readOpenRouterTextStream(response);
@@ -40,6 +41,17 @@ void test('OpenRouter SSE text survives arbitrary chunk boundaries and partial s
   assert.equal(result.finishReason, 'length');
   assert.equal(result.providerError, true);
   assert.equal(result.completed, true);
+  assert.equal(result.generationId, 'gen-test');
+  assert.equal(result.servedModelId, 'openai/gpt-5.6-luna');
+  assert.deepEqual(result.usage, {
+    promptTokens: 120,
+    completionTokens: 35,
+    reasoningTokens: 11,
+    cachedTokens: 20,
+    totalTokens: 155,
+    providerCost: 0.0042,
+  });
+  assert.ok(result.firstContentAt);
 });
 
 void test('browser SSE sends heartbeat, raw delta, and a final result', async () => {
