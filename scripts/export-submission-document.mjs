@@ -18,6 +18,7 @@ const repositoryRoot = path.resolve(
 const input = path.resolve(repositoryRoot, process.argv[2] || '');
 const output = path.resolve(repositoryRoot, process.argv[3] || '');
 const documentTitle = process.argv[4] || path.basename(input, path.extname(input));
+const compactDocument = path.basename(input).startsWith('00_');
 
 if (!process.argv[2] || !process.argv[3]) {
   throw new Error(
@@ -69,9 +70,13 @@ try {
     });
     await page.goto(pathToFileURL(intermediate).href, { waitUntil: 'load' });
     await page.emulateMedia({ media: 'print', reducedMotion: 'reduce' });
-    await page.evaluate(async () => {
+    await page.evaluate(async (useCompactLayout) => {
+      document.documentElement.classList.toggle(
+        'compact-document',
+        useCompactLayout,
+      );
       await document.fonts.ready;
-    });
+    }, compactDocument);
     await page.pdf({
       path: output,
       format: 'A4',
@@ -82,7 +87,7 @@ try {
       displayHeaderFooter: true,
       headerTemplate: '<span></span>',
       footerTemplate:
-        '<div style="box-sizing:border-box;width:100%;padding:0 14mm 5mm;color:#6b7280;font:8px Malgun Gothic,Arial,sans-serif;display:flex;justify-content:space-between"><span>Websidian · 실무 유사 합성 POC</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>',
+        '<div style="box-sizing:border-box;width:100%;padding:0 14mm 5mm;color:#6b7280;font:8px Malgun Gothic,Arial,sans-serif;display:flex;justify-content:space-between"><span>WEBSIDIAN · 실무 유사 합성 POC</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>',
     });
   } finally {
     await browser.close();

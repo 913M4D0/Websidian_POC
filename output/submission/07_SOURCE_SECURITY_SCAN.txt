@@ -1,0 +1,9 @@
+Websidian public-release source scan
+run_at=2026-09-10T08:22:53.553Z
+text_files_scanned=169
+finding_count=0
+git_history_scanned=true
+git_history_bytes=4318629
+scope=tracked and untracked text files, excluding ignored files and tmp/; optional git patch history
+note=pattern scan only; not a legal, privacy, or complete secret audit
+RESULT=PASS

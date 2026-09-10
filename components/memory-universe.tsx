@@ -2150,7 +2150,7 @@ export function MemoryUniverse() {
                       <strong>
                         {testPlan ? '테스트 결과 보기' : '테스트 케이스'}
                       </strong>
-                      <small>이력 기반 검증 시나리오</small>
+                      <small>과거 사이드 · 회귀 조건까지</small>
                     </span>
                     <ChevronRight />
                   </button>

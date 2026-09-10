@@ -34,6 +34,44 @@ html {
   text-rendering: geometricPrecision;
 }
 
+html.compact-document {
+  font-size: 8.45pt;
+  line-height: 1.46;
+}
+
+html.compact-document body::before {
+  margin-bottom: 7mm;
+  padding-block: 2.5mm;
+}
+
+html.compact-document h1 {
+  margin-bottom: 3.5mm;
+  font-size: 21pt;
+}
+
+html.compact-document h2 {
+  margin-top: 6mm;
+  margin-bottom: 2.2mm;
+}
+
+html.compact-document p,
+html.compact-document ul,
+html.compact-document ol,
+html.compact-document blockquote,
+html.compact-document pre,
+html.compact-document table {
+  margin-bottom: 2.5mm;
+}
+
+html.compact-document table {
+  font-size: 7.25pt;
+}
+
+html.compact-document th,
+html.compact-document td {
+  padding: 1.35mm 1.6mm;
+}
+
 body {
   margin: 0;
   max-width: none;
