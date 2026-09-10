@@ -7,7 +7,7 @@
       name="description"
       content="Websidian: 완료한 이슈를 다음 판단의 근거로 연결하는 조직 기억 아카이브"
     />
-    <title>Websidian 발표자료</title>
+    <title>WEBSIDIAN</title>
     <style>
       :root {
         color-scheme: dark;
@@ -1368,6 +1368,21 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 16px;
         margin-top: 28px;
+      }
+
+      .benchmark-boundary {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        margin-top: 18px;
+        padding: 7px 11px;
+        border: 1px solid rgba(206, 145, 120, 0.55);
+        border-radius: 999px;
+        background: rgba(206, 145, 120, 0.09);
+        color: var(--amber);
+        font-family: var(--mono);
+        font-size: clamp(11px, 0.78vw, 14px);
+        letter-spacing: 0.04em;
       }
 
       .benchmark-card {
@@ -2756,7 +2771,7 @@
       <section
         class="slide scene-opening active"
         data-title="오프닝"
-        data-note="성운을 3초 보여준 뒤 제목을 표시합니다. 첫 문장에서 완료한 이슈를 다음 이슈의 근거로 재사용하는 조직 기억 시스템이라고 정의합니다. AI 설명은 뒤로 미룹니다."
+        data-note="성운을 3초 보여준 뒤 WEBSIDIAN 제목을 표시합니다. 첫 문장에서 완료한 이슈를 다음 이슈의 근거로 재사용하는 조직 기억 시스템이라고 정의합니다. AI 설명은 뒤로 미룹니다."
         role="group"
         aria-roledescription="슬라이드"
         aria-label="1. 오프닝"
@@ -2766,9 +2781,9 @@
         </div>
         <div class="opening-veil build" data-build>
           <div class="opening-title">
-            <div class="project-name">WEBSIDIAN</div>
-            <h1>완료한 이슈를 연결해<br />다음 판단의 근거로</h1>
-            <div class="project-purpose">과거의 기록을 다음 이슈에 재사용하는 조직 기억 아카이브</div>
+            <div class="project-name">AI ISSUE MEMORY</div>
+            <h1>WEBSIDIAN</h1>
+            <div class="project-purpose">완료한 이슈를 연결해 다음 판단의 근거로 만드는 조직 기억 아카이브</div>
             <div class="presenter">키움증권 SM부문 · 모바일운영팀 · 강경모 선임</div>
             <div class="deck-outline"><span>서론 · 반복되는 조사 비용</span><span>본론 · 기록을 연결하는 방법</span><span>결론 · 검증 계획</span></div>
             <div class="opening-disclaimer">연출 화면과 이슈 데이터는 POC용 합성 자료입니다</div>
@@ -3077,7 +3092,7 @@
       <section
         class="slide"
         data-title="자체 벤치마크 결과"
-        data-note="실제 증권 운영 자료를 공개하거나 외부 AI에 보내지 않기 위해 실무 유사 합성 이슈 294건으로 자체 벤치마크했습니다. 실제 현업 생산성 수치가 아니라 검색 순위 기반 대리지표입니다. 기준선 대비 핵심 근거 전체 도달 순위 17건에서 6.67건, Recall@10 85.71%에서 100%, 유효근거 밀도 60%에서 100%, AI 문맥 251건에서 7건입니다. 엄격한 2-hop 경로는 83.33%로 한 건의 실패를 숨기지 않았습니다."
+        data-note="실제 증권 운영 자료를 공개하거나 외부 AI에 보내지 않기 위해 실무 유사 합성 이슈 294건을 검색 공간으로 두고 대표 과제 3건으로 자체 벤치마크했습니다. 실제 현업 생산성 수치가 아니라 검색 순위 기반 대리지표입니다. 기준선 대비 핵심 근거 전체 도달 순위 17건에서 6.67건, Recall@10 85.71%에서 100%, 반환 결과의 유효근거 밀도 60%에서 100%, AI 입력 후보는 완료 이력 251건 중 과제별 7건입니다. 엄격한 2-hop 경로는 83.33%로 한 건의 실패를 숨기지 않았습니다."
         role="group"
         aria-roledescription="슬라이드"
         aria-label="13. 자체 벤치마크 결과"
@@ -3085,13 +3100,14 @@
         <div class="slide-inner outcome-layout">
           <div class="slide-kicker">결론 · 자체 벤치마크 관측값</div>
           <h2 style="max-width:29ch">실제 자료 대신 같은 조건에서<br /><span class="accent-mint">찾아야 할 근거의 양과 질</span>을 측정했습니다</h2>
+          <div class="benchmark-boundary">실제 운영 성과가 아닌 · 실무 유사 합성 POC 관측값</div>
           <div class="benchmark-grid">
             <div class="benchmark-card build" data-build><b>핵심 근거 모두 도달 · 문서 순위</b><div class="benchmark-value">17.00 <i>→</i> <strong>6.67건</strong></div><span>확인 후보 <strong>60.78% 감소</strong> · 시간 절감률 아님</span></div>
             <div class="benchmark-card build" data-build><b>관련 완료 이력 회수 · RECALL@10</b><div class="benchmark-value">85.71 <i>→</i> <strong>100%</strong></div><span>대표 세 과제의 관련 이력 21건 기준</span></div>
-            <div class="benchmark-card build" data-build><b>TOP-10 유효 근거 밀도</b><div class="benchmark-value">60.00 <i>→</i> <strong>100%</strong></div><span>비관련 결과 비율 <strong>40% → 0%</strong></span></div>
-            <div class="benchmark-card build" data-build><b>AI에 전달한 완료 이력</b><div class="benchmark-value">251 <i>→</i> <strong>7건</strong></div><span>전체 비교 문맥 대비 문자수 <strong>3.59%</strong></span></div>
+            <div class="benchmark-card build" data-build><b>반환 결과의 유효 근거 밀도</b><div class="benchmark-value">60.00 <i>→</i> <strong>100%</strong></div><span>2-hop 반환 7/7 · 비관련 결과 <strong>40% → 0%</strong></span></div>
+            <div class="benchmark-card build" data-build><b>AI 입력 후보 선별 범위</b><div class="benchmark-value">251 <i>→</i> <strong>7건</strong></div><span>251건 전체는 미전송 · 비교 문자수 대비 <strong>3.59%</strong></span></div>
           </div>
-          <div class="benchmark-evidence build" data-build><span>합성 이슈 294건 · 대표 과제 n=3 · 방법별 100회 · 독립 qrels</span><span>엄격 2-hop 경로 <strong>83.33%</strong> · 실패 1건 공개</span><span><strong>실제 운영 생산성·비용 성과 아님</strong></span></div>
+          <div class="benchmark-evidence build" data-build><span>검색 공간 294건 · 순위평가 n=3 · 실행시간만 방법별 100회</span><span>제품 순위 비참조 · 사전 고정 자체 qrels</span><span>엄격 2-hop 경로 <strong>83.33%</strong> · 실패 1건 공개</span></div>
         </div>
       </section>
 
@@ -3189,7 +3205,7 @@
       <p><a href="https://microsoft.github.io/graphrag/" target="_blank" rel="noreferrer">Microsoft GraphRAG 공식 개요</a>와 <a href="https://microsoft.github.io/graphrag/query/local_search/" target="_blank" rel="noreferrer">Local Search 문서</a>에서 벡터 유사도 검색의 연결 한계와 엔티티 이웃 탐색 원리를 확인했습니다.</p>
       <p>Websidian은 Microsoft GraphRAG 구현이 아니라, 해당 문제의식을 이슈 관리에 적용한 이슈 중심 혼합 관계 탐색 POC입니다.</p>
       <p>경진대회 운영안 기준 발표 15분, Q&amp;A 5분에 맞췄습니다.</p>
-      <p>모든 이슈·파일 경로·처리 기록은 합성 데이터입니다. 294건은 기능 시연 범위이며 제품 효과의 측정 표본이 아닙니다.</p>
+      <p>모든 이슈·파일 경로·처리 기록은 합성 데이터입니다. 294건은 검색 공간이고 정량 순위평가 표본은 대표 과제 3건입니다.</p>
     </aside>
 
     <div class="backup-demo" id="backupDemo" hidden role="dialog" aria-modal="true" aria-label="백업 시연">

@@ -54,7 +54,7 @@ try {
     '--to=html5',
     '--standalone',
     '--metadata',
-    `title=${documentTitle}`,
+    `pagetitle=${documentTitle}`,
     '--css',
     stylesheet,
     '--output',

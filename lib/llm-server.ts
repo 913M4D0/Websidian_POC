@@ -522,7 +522,11 @@ async function generateIssueInsight(
               context.citationIds,
             ),
           };
-    finalize(warning ? 'partial' : 'success');
+    finalize(
+      warning ? 'partial' : 'success',
+      false,
+      warning ? 'stream-partial' : null,
+    );
     return result;
   } catch (error) {
     const cancelled = Boolean(hooks.signal?.aborted);
