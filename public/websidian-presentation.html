@@ -217,7 +217,50 @@
       }
 
       .scene-opening {
-        padding: clamp(20px, 2vw, 34px);
+        padding: 0;
+        background: #070b10;
+      }
+
+      .opening-nebula {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 50% 50%, rgba(86, 156, 214, 0.13), transparent 31%),
+          radial-gradient(circle at 38% 56%, rgba(78, 201, 176, 0.07), transparent 34%),
+          radial-gradient(circle at 64% 40%, rgba(197, 134, 192, 0.055), transparent 30%),
+          #070b10;
+      }
+
+      .opening-nebula::before,
+      .opening-nebula::after {
+        position: absolute;
+        inset: 0;
+        content: "";
+        pointer-events: none;
+      }
+
+      .opening-nebula::before {
+        z-index: 2;
+        background: radial-gradient(circle at 50% 50%, transparent 38%, rgba(4, 7, 10, 0.2) 68%, rgba(4, 7, 10, 0.82) 100%);
+      }
+
+      .opening-nebula::after {
+        z-index: 1;
+        opacity: 0.24;
+        background-image: radial-gradient(circle, rgba(218, 233, 241, 0.42) 0 0.6px, transparent 0.9px);
+        background-size: 37px 37px;
+        mask-image: radial-gradient(circle at 50% 50%, black 0, transparent 72%);
+      }
+
+      .opening-nebula .graph-canvas {
+        z-index: 3;
+      }
+
+      body.opening-graph-only .deck-chrome,
+      body.opening-graph-only .progress-rail {
+        opacity: 0;
+        pointer-events: none;
       }
 
       .mock-shell {
@@ -459,8 +502,14 @@
         display: grid;
         place-items: center;
         padding: 8vw;
-        background: rgba(8, 12, 16, 0.73);
-        backdrop-filter: blur(10px) saturate(0.75);
+        background:
+          radial-gradient(circle at 50% 50%, rgba(7, 11, 16, 0.35), rgba(7, 11, 16, 0.72) 66%, rgba(7, 11, 16, 0.9)),
+          rgba(7, 11, 16, 0.3);
+        backdrop-filter: blur(2px) saturate(0.88);
+      }
+
+      .opening-veil:not(.revealed) {
+        pointer-events: none;
       }
 
       .opening-title {
@@ -493,6 +542,14 @@
         color: #d1dade;
         font-size: clamp(16px, 1.2vw, 21px);
         line-height: 1.55;
+      }
+
+      .opening-disclaimer {
+        margin-top: 22px;
+        color: #68757e;
+        font-family: var(--mono);
+        font-size: clamp(10px, 0.72vw, 13px);
+        letter-spacing: 0.04em;
       }
 
       .two-column {
@@ -2607,33 +2664,8 @@
         aria-roledescription="슬라이드"
         aria-label="1. 오프닝"
       >
-        <div class="mock-shell" aria-label="Websidian 합성 화면">
-          <header class="mock-topbar">
-            <div class="mock-brand"><span class="brand-mark" aria-hidden="true"></span>websidian <span class="mono" style="color:#5f6c75;font-size:10px">ISSUE WORKSPACE</span></div>
-            <div class="mock-status"><i class="status-dot"></i>개인 POC · 합성 데이터 294건</div>
-          </header>
-          <div class="mock-body">
-            <aside class="mock-sidebar">
-              <div class="mock-tabs"><span>진행 43</span><span>기억 251</span><span>검색</span></div>
-              <div class="mock-search">제목 · 이슈 번호 · 담당 팀 검색</div>
-              <div class="mock-issue active-item"><strong>◉ WS-008</strong><p>다시 시도한 뒤 주문 수량이 두 배로 접수됨</p><small>파트너사업 운영팀 · 진행 중</small></div>
-              <div class="mock-issue"><strong>○ WS-016</strong><p>완료 결재문서에 이전 부서명이 표시됨</p><small>경영지원 운영팀</small></div>
-              <div class="mock-issue"><strong>○ WS-024</strong><p>전체 접수와 오늘 목록의 건수가 맞지 않음</p><small>고객지원 운영팀</small></div>
-            </aside>
-            <div class="mock-canvas">
-              <canvas class="graph-canvas" data-graph="universe" aria-label="움직이는 이슈 기억 그래프"></canvas>
-              <div class="mock-legend"><span>● 진행 43</span><span>● 완료 251</span><span>RELATION LINKS</span></div>
-            </div>
-            <aside class="mock-inspector">
-              <div class="mock-inspector-header">◉ WS-008 <span style="color:#65727a">r1</span></div>
-              <div class="mock-inspector-content">
-                <small>대표 사례 · 과거 해결·장애 이력 재사용</small>
-                <h3>파트너 주문 화면에서 다시 시도한 뒤 주문 수량이 두 배로 접수됨</h3>
-                <p>선택한 이슈의 원문을 유지한 채 완료 이력과 연결합니다.</p>
-                <div class="mock-actions"><span>이슈 분석</span><span>테스트 케이스</span></div>
-              </div>
-            </aside>
-          </div>
+        <div class="opening-nebula" aria-label="완료 이슈들이 나선형으로 연결되어 회전하는 조직 기억 성운">
+          <canvas class="graph-canvas" data-graph="opening" aria-label="회전하는 나선형 이슈 기억 그래프"></canvas>
         </div>
         <div class="opening-veil build" data-build>
           <div class="opening-title">
@@ -2642,9 +2674,9 @@
             <div class="project-purpose">과거의 기록을 다음 이슈에 재사용하는 조직 기억 아카이브</div>
             <div class="presenter">키움증권 SM부문 · 모바일운영팀 · 강경모 선임</div>
             <div class="deck-outline"><span>서론 · 반복되는 조사 비용</span><span>본론 · 기록을 연결하는 방법</span><span>결론 · 검증 계획</span></div>
+            <div class="opening-disclaimer">연출 화면과 이슈 데이터는 POC용 합성 자료입니다</div>
           </div>
         </div>
-        <div class="screen-disclaimer">화면과 이슈는 모두 POC용 합성 데이터입니다</div>
       </section>
 
       <section
@@ -3076,8 +3108,10 @@
 
     <script>
       (() => {
-        const printMode = new URLSearchParams(location.search).has('print');
-        const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const query = new URLSearchParams(location.search);
+        const printMode = query.has('print');
+        const forceMotion = query.get('motion') === '1';
+        const reducedMotion = !forceMotion && matchMedia('(prefers-reduced-motion: reduce)').matches;
         const slides = [...document.querySelectorAll('.slide')];
         const progress = document.getElementById('progressBar');
         const count = document.getElementById('deckCount');
@@ -3089,6 +3123,24 @@
         const referencePanel = document.getElementById('referencePanel');
         const backupDemo = document.getElementById('backupDemo');
         let index = 0;
+        let openingAutoTimer = null;
+        const openingVeil = document.querySelector('.scene-opening .opening-veil');
+
+        const syncOpeningState = () => {
+          const graphOnly = !printMode && index === 0 && openingVeil && !openingVeil.classList.contains('revealed');
+          document.body.classList.toggle('opening-graph-only', Boolean(graphOnly));
+        };
+
+        const scheduleOpeningReveal = () => {
+          if (openingAutoTimer) clearTimeout(openingAutoTimer);
+          openingAutoTimer = null;
+          if (printMode || index !== 0 || !openingVeil || openingVeil.classList.contains('revealed')) return;
+          openingAutoTimer = setTimeout(() => {
+            if (index !== 0 || openingVeil.classList.contains('revealed')) return;
+            openingVeil.classList.add('revealed');
+            syncOpeningState();
+          }, 3200);
+        };
 
         const hidePanels = () => {
           notesPanel.hidden = true;
@@ -3145,6 +3197,8 @@
           typePrompt(slides[index]);
           if (announce) announcer.textContent = `${index + 1}번 슬라이드, ${slides[index].dataset.title}`;
           history.replaceState(null, '', `#${index + 1}`);
+          syncOpeningState();
+          scheduleOpeningReveal();
         };
 
         const next = () => {
@@ -3152,6 +3206,8 @@
           const nextBuild = currentBuilds().find((item) => !item.classList.contains('revealed'));
           if (nextBuild) {
             nextBuild.classList.add('revealed');
+            syncOpeningState();
+            scheduleOpeningReveal();
             return;
           }
           if (index < slides.length - 1) {
@@ -3274,10 +3330,10 @@
         });
 
         const people = document.querySelector('[data-people]');
-        for (let person = 0; person < Number(people.dataset.people || 0); person += 1) {
+        for (let person = 0; person < Number(people?.dataset.people || 0); person += 1) {
           const dot = document.createElement('i');
           dot.style.setProperty('--person-opacity', String(0.42 + ((person * 17) % 50) / 100));
-          people.append(dot);
+          people?.append(dot);
         }
 
         const seedRandom = (seed) => {
@@ -3294,7 +3350,7 @@
             this.context = canvas.getContext('2d');
             this.mode = canvas.dataset.graph;
             this.pointer = { x: -9999, y: -9999 };
-            this.selected = 0;
+            this.selected = this.mode === 'opening' ? -1 : 0;
             this.phase = 0;
             this.nodes = [];
             this.edges = [];
@@ -3320,9 +3376,33 @@
           }
 
           createData() {
-            const random = seedRandom(this.mode === 'universe' ? 913 : this.mode === 'path' ? 24 : 50);
-            const count = this.mode === 'universe' ? 150 : this.mode === 'path' ? 32 : 58;
+            const random = seedRandom(this.mode === 'universe' || this.mode === 'opening' ? 913 : this.mode === 'path' ? 24 : 50);
+            const count = this.mode === 'opening' ? 240 : this.mode === 'universe' ? 150 : this.mode === 'path' ? 32 : 58;
             const palette = ['#4ec9b0', '#569cd6', '#c586c0', '#d7ba7d', '#89a38d', '#7b8790'];
+            if (this.mode === 'opening') {
+              const arms = 5;
+              const steps = count / arms;
+              for (let arm = 0; arm < arms; arm += 1) {
+                for (let step = 0; step < steps; step += 1) {
+                  const i = arm * steps + step;
+                  const t = step / Math.max(1, steps - 1);
+                  const latitude = (t - 0.5) * Math.PI * 0.91;
+                  const theta = t * Math.PI * 2 * 4.35 + arm * (Math.PI * 2 / arms);
+                  const radius = Math.cos(latitude) * (0.94 + Math.sin(step * 0.62 + arm) * 0.035);
+                  this.nodes.push({
+                    x: radius * Math.cos(theta),
+                    y: Math.sin(latitude) * 0.96,
+                    z: radius * Math.sin(theta),
+                    size: 1.45 + random() * 2.55,
+                    color: step % 29 === 0 ? '#ffffff' : palette[Math.floor(random() * palette.length)],
+                    drift: random() * Math.PI * 2,
+                  });
+                  if (step > 0) this.edges.push([i, i - 1]);
+                  if (step % 8 === 0 && arm > 0) this.edges.push([i, (arm - 1) * steps + step]);
+                }
+              }
+              return;
+            }
             for (let i = 0; i < count; i += 1) {
               const t = i / Math.max(1, count - 1);
               const theta = i * 2.3999632297 + random() * 0.22;
@@ -3362,18 +3442,21 @@
             const width = this.width || 1;
             const height = this.height || 1;
             ctx.clearRect(0, 0, width, height);
-            const speed = printMode || reducedMotion ? 0 : time * 0.000045;
-            const scale = Math.min(width, height) * (this.mode === 'universe' ? 0.37 : 0.34);
+            const speed = printMode || reducedMotion ? 0 : time * (this.mode === 'opening' ? 0.00009 : 0.000045);
+            const scale = Math.min(width, height) * (this.mode === 'opening' ? 0.47 : this.mode === 'universe' ? 0.37 : 0.34);
             const centerX = width * 0.5;
             const centerY = height * (this.mode === 'universe' ? 0.49 : 0.5);
             this.projected = this.nodes.map((node, nodeIndex) => {
-              const rotation = speed + (this.mode === 'path' ? 0.65 : 0.2);
+              const rotation = speed + (this.mode === 'path' ? 0.65 : this.mode === 'opening' ? -0.62 : 0.2);
               const x3 = node.x * Math.cos(rotation) - node.z * Math.sin(rotation);
-              const z3 = node.x * Math.sin(rotation) + node.z * Math.cos(rotation);
-              const vertical = reducedMotion || printMode ? 0 : Math.sin(time * 0.00034 + node.drift) * 0.045;
-              const perspective = 0.72 + (z3 + 1) * 0.22;
+              const rotatedZ = node.x * Math.sin(rotation) + node.z * Math.cos(rotation);
+              const tilt = this.mode === 'opening' ? -0.16 : 0;
+              const y3 = node.y * Math.cos(tilt) - rotatedZ * Math.sin(tilt);
+              const z3 = node.y * Math.sin(tilt) + rotatedZ * Math.cos(tilt);
+              const vertical = reducedMotion || printMode ? 0 : Math.sin(time * 0.00034 + node.drift) * (this.mode === 'opening' ? 0.032 : 0.045);
+              const perspective = this.mode === 'opening' ? 0.62 + (z3 + 1) * 0.28 : 0.72 + (z3 + 1) * 0.22;
               let x = centerX + x3 * scale * perspective;
-              let y = centerY + (node.y + vertical) * scale * perspective;
+              let y = centerY + (y3 + vertical) * scale * perspective;
               const dx = x - this.pointer.x;
               const dy = y - this.pointer.y;
               const distance = Math.hypot(dx, dy);
@@ -3382,10 +3465,10 @@
                 x += (dx / distance) * force;
                 y += (dy / distance) * force;
               }
-              return { ...node, x, y, depth: z3, alpha: 0.28 + perspective * 0.62, radius: node.size * perspective + (nodeIndex === this.selected ? 2.4 : 0) };
+              return { ...node, x, y, depth: z3, alpha: this.mode === 'opening' ? 0.24 + perspective * 0.66 : 0.28 + perspective * 0.62, radius: node.size * perspective + (nodeIndex === this.selected ? 2.4 : 0) };
             });
             const reveal = this.mode === 'connected' ? Math.min(1, Math.max(0, (time % 9000) / 1800)) : 1;
-            ctx.lineWidth = 0.7;
+            ctx.lineWidth = this.mode === 'opening' ? 0.95 : 0.7;
             this.edges.forEach(([sourceIndex, targetIndex], edgeIndex) => {
               if (this.mode === 'path' && edgeIndex > backupIndex * 12 + 5) return;
               const source = this.projected[sourceIndex];
@@ -3395,7 +3478,9 @@
               const endX = source.x + (target.x - source.x) * reveal;
               const endY = source.y + (target.y - source.y) * reveal;
               ctx.lineTo(endX, endY);
-              ctx.strokeStyle = `rgba(112, 158, 181, ${0.08 + Math.max(source.depth, target.depth) * 0.03})`;
+              const edgeDepth = (Math.max(source.depth, target.depth) + 1) / 2;
+              const edgeAlpha = this.mode === 'opening' ? 0.1 + edgeDepth * 0.18 : 0.08 + Math.max(source.depth, target.depth) * 0.03;
+              ctx.strokeStyle = `rgba(112, 158, 181, ${edgeAlpha})`;
               ctx.stroke();
             });
             [...this.projected].sort((a, b) => a.depth - b.depth).forEach((node) => {
