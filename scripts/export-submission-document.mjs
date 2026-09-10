@@ -18,20 +18,20 @@ const repositoryRoot = path.resolve(
 const input = path.resolve(repositoryRoot, process.argv[2] || '');
 const output = path.resolve(repositoryRoot, process.argv[3] || '');
 const documentTitle = process.argv[4] || path.basename(input, path.extname(input));
+const stylesheetArgument = process.argv[5];
+const footerLabel = process.argv[6] || 'WEBSIDIAN · 실무 유사 합성 POC';
 const compactDocument = path.basename(input).startsWith('00_');
 
 if (!process.argv[2] || !process.argv[3]) {
   throw new Error(
-    'usage: node scripts/export-submission-document.mjs <input.md> <output.pdf> [title]',
+    'usage: node scripts/export-submission-document.mjs <input.md> <output.pdf> [title] [stylesheet] [footer-label]',
   );
 }
 
 const pandoc = process.env.WEBSIDIAN_PANDOC_PATH || 'pandoc';
-const stylesheet = path.join(
-  repositoryRoot,
-  'assets',
-  'submission-document.css',
-);
+const stylesheet = stylesheetArgument
+  ? path.resolve(repositoryRoot, stylesheetArgument)
+  : path.join(repositoryRoot, 'assets', 'submission-document.css');
 const temporaryDirectory = await mkdtemp(
   path.join(tmpdir(), 'websidian-document-'),
 );
@@ -56,6 +56,7 @@ try {
     '--standalone',
     '--metadata',
     `pagetitle=${documentTitle}`,
+    '--self-contained',
     '--css',
     stylesheet,
     '--output',
@@ -87,7 +88,7 @@ try {
       displayHeaderFooter: true,
       headerTemplate: '<span></span>',
       footerTemplate:
-        '<div style="box-sizing:border-box;width:100%;padding:0 14mm 5mm;color:#6b7280;font:8px Malgun Gothic,Arial,sans-serif;display:flex;justify-content:space-between"><span>WEBSIDIAN · 실무 유사 합성 POC</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>',
+        `<div style="box-sizing:border-box;width:100%;padding:0 14mm 5mm;color:#697386;font:8px Malgun Gothic,Arial,sans-serif;display:flex;justify-content:space-between"><span>${footerLabel}</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>`,
     });
   } finally {
     await browser.close();
