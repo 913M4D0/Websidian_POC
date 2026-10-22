@@ -520,9 +520,56 @@
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  background:
-    radial-gradient(ellipse at 48% 47%, #1b222a 0, #11161c 43%, #090c10 100%),
-    #090c10;
+  background-color: #04070c;
+  background-image:
+    radial-gradient(
+      circle at 22% 28%,
+      rgba(255, 255, 255, 0.22) 0 0.65px,
+      transparent 1.25px
+    ),
+    radial-gradient(
+      circle at 71% 63%,
+      rgba(125, 199, 255, 0.16) 0 0.8px,
+      transparent 1.4px
+    ),
+    radial-gradient(
+      ellipse at 16% 14%,
+      rgba(79, 193, 255, 0.11) 0,
+      transparent 31%
+    ),
+    radial-gradient(
+      ellipse at 83% 76%,
+      rgba(197, 134, 192, 0.085) 0,
+      transparent 35%
+    ),
+    linear-gradient(
+      126deg,
+      transparent 24%,
+      rgba(93, 139, 174, 0.035) 43%,
+      rgba(171, 126, 183, 0.04) 55%,
+      transparent 72%
+    ),
+    radial-gradient(
+      ellipse at 49% 47%,
+      #182432 0,
+      #0a1018 49%,
+      #03060b 100%
+    );
+  background-size:
+    137px 131px,
+    211px 197px,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%;
+  background-position:
+    17px 29px,
+    43px 11px,
+    center,
+    center,
+    center,
+    center;
+  background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat, no-repeat;
 }
 .graph-toolbar {
   position: absolute;

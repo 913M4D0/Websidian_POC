@@ -125,6 +125,7 @@ type GraphSafeRect = {
 const OVERVIEW_CAMERA_DISTANCE_FACTOR = 0.96;
 const GRAVITY_CAMERA_MINIMUM_SCALE = 0.82;
 const RELATED_FOCUS_CAMERA_DISTANCE_FACTOR = 0.72;
+const OVERVIEW_ROTATION_SPEED = 0.09;
 
 function hexToRgba(hex: string, alpha: number) {
   const value = hex.replace('#', '');
@@ -678,7 +679,8 @@ export function GraphStage({
             : 0;
           rotation.lastTimestamp = now;
           rotation.angle =
-            (rotation.angle + elapsedSeconds * 0.055) % (Math.PI * 2);
+            (rotation.angle + elapsedSeconds * OVERVIEW_ROTATION_SPEED) %
+            (Math.PI * 2);
           const pointer = pointerStateRef.current;
           const pointerResponds = pointer.active && !pointer.pressed;
           if (pointerResponds) {

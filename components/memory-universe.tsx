@@ -1134,7 +1134,7 @@ export function MemoryUniverse() {
   const [searching, setSearching] = useState(false);
   const [limit, setLimit] = useState(24);
   const [form, setForm] = useState<'create' | 'resolve' | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [integrationOpen, setIntegrationOpen] = useState(false);
   const [compilingIds, setCompilingIds] = useState<Set<string>>(new Set());
   const [analysis, setAnalysis] = useState<IssueAnalysisResponse | null>(null);
