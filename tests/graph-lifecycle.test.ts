@@ -367,6 +367,32 @@ void test('overview vertical wave is deterministic, bounded, and periodic', () =
   assert.notEqual(offset, nebulaVerticalOffset(issueId, angle + Math.PI / 6));
 });
 
+void test('overview rotation pauses on node hover and resumes without catch-up', () => {
+  const source = readFileSync(
+    new URL('../components/issue-graph.tsx', import.meta.url),
+    'utf8',
+  );
+  const forceStart = source.indexOf('const livingForce =');
+  const forceEnd = source.indexOf('livingForce.initialize', forceStart);
+  const forceBlock = source.slice(forceStart, forceEnd);
+  const hoverStart = source.indexOf('.onNodeHover((node) => {');
+  const hoverEnd = source.indexOf('.onNodeDrag(', hoverStart);
+  const hoverBlock = source.slice(hoverStart, hoverEnd);
+
+  assert.ok(forceStart >= 0 && forceEnd > forceStart);
+  assert.match(forceBlock, /rotation\.lastTimestamp = now;/);
+  assert.match(forceBlock, /if \(hoveredIdRef\.current === null\)/);
+  assert.match(
+    forceBlock,
+    /rotation\.angle \+ elapsedSeconds \* OVERVIEW_ROTATION_SPEED/,
+  );
+  assert.ok(hoverStart >= 0 && hoverEnd > hoverStart);
+  assert.match(
+    hoverBlock,
+    /overviewRotationRef\.current\.lastTimestamp = performance\.now\(\)/,
+  );
+});
+
 void test('recorded completion evidence survives the edge budget without implying similarity or causality', () => {
   const makeIssue = (word: string): Issue => ({
     id: word,

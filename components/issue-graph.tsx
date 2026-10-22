@@ -677,10 +677,14 @@ export function GraphStage({
           const elapsedSeconds = rotation.lastTimestamp
             ? Math.min(0.05, Math.max(0, (now - rotation.lastTimestamp) / 1000))
             : 0;
+          // Keep the clock current while hovering so rotation resumes from the
+          // same pose instead of catching up for the time the pointer rested
+          // on a memory. Pointer tilt and node emphasis remain interactive.
           rotation.lastTimestamp = now;
-          rotation.angle =
-            (rotation.angle + elapsedSeconds * OVERVIEW_ROTATION_SPEED) %
-            (Math.PI * 2);
+          if (hoveredIdRef.current === null)
+            rotation.angle =
+              (rotation.angle + elapsedSeconds * OVERVIEW_ROTATION_SPEED) %
+              (Math.PI * 2);
           const pointer = pointerStateRef.current;
           const pointerResponds = pointer.active && !pointer.pressed;
           if (pointerResponds) {
@@ -1096,6 +1100,7 @@ export function GraphStage({
             const nextHoveredId = node?.id ?? null;
             if (nextHoveredId === hoveredIdRef.current) return;
             hoveredIdRef.current = nextHoveredId;
+            overviewRotationRef.current.lastTimestamp = performance.now();
             if (hoverRefreshFrameRef.current === null) {
               hoverRefreshFrameRef.current = window.requestAnimationFrame(
                 () => {
