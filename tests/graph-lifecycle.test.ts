@@ -192,6 +192,35 @@ void test('the graph keeps only essential controls on the main canvas', () => {
   assert.doesNotMatch(styles, /\.graph-settings/);
 });
 
+void test('ambient relationships stay lightweight while focused relationships retain emphasis', () => {
+  const source = readFileSync(
+    new URL('../components/issue-graph.tsx', import.meta.url),
+    'utf8',
+  );
+  const widthStart = source.indexOf('.linkWidth((link) => {');
+  const widthEnd = source.indexOf('.linkOpacity(1)', widthStart);
+  const widthBlock = source.slice(widthStart, widthEnd);
+  const curvatureStart = source.indexOf('.linkCurvature((link) =>');
+  const curvatureEnd = source.indexOf('.onNodeClick', curvatureStart);
+  const curvatureBlock = source.slice(curvatureStart, curvatureEnd);
+
+  assert.ok(widthStart >= 0 && widthEnd > widthStart);
+  assert.match(widthBlock, /isSelectedIncident\(link\)\) return 1\.35/);
+  assert.match(widthBlock, /isHoverIncident\(link\)\) return 1/);
+  assert.match(widthBlock, /isPrimaryTreeLink\(link\)\) return 0\.55/);
+  assert.match(widthBlock, /return 0/);
+  assert.doesNotMatch(widthBlock, /0\.28 \+ link\.score/);
+  assert.doesNotMatch(widthBlock, /0\.16 \+ link\.score/);
+
+  assert.ok(curvatureStart >= 0 && curvatureEnd > curvatureStart);
+  assert.match(
+    curvatureBlock,
+    /isSelectedIncident\(link\) \|\| isHoverIncident\(link\)/,
+  );
+  assert.match(curvatureBlock, /\? 0\.035 : 0/);
+  assert.doesNotMatch(curvatureBlock, /Math\.max\(0\.015/);
+});
+
 void test('empty history and unrelated work issue have safe node-only graphs', () => {
   assert.deepEqual(createMemoryGraph([]), { nodes: [], links: [] });
   const active = issues.find((issue) => issue.id === 'WS-008')!;

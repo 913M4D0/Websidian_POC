@@ -1067,10 +1067,11 @@ export function GraphStage({
             if (isSelectedIncident(link)) return 1.35;
             if (isHoverIncident(link)) return 1;
             if (isPrimaryTreeLink(link)) return 0.55;
-            if (isFocusedCrossLink(link)) return 0.22;
-            if (gravityLayoutRef.current) return 0.09;
-            if (isActiveIncident(link)) return 0.28 + link.score * 0.24;
-            return 0.16 + link.score * 0.18;
+            // Width 0 deliberately selects THREE.Line in three-forcegraph.
+            // Any positive width builds a TubeGeometry, so keeping the hundreds
+            // of ambient relationships flat avoids rebuilding those tubes on
+            // every living-nebula frame. Colour still carries their relevance.
+            return 0;
           })
           .linkOpacity(1)
           .linkDirectionalParticles(() => 0)
@@ -1086,11 +1087,7 @@ export function GraphStage({
                 : 'rgba(133,133,133,0)',
           )
           .linkCurvature((link) =>
-            gravityLayoutRef.current
-              ? isFocusedCrossLink(link)
-                ? 0.065
-                : 0
-              : Math.max(0.015, (link.score - 0.35) * 0.04),
+            isSelectedIncident(link) || isHoverIncident(link) ? 0.035 : 0,
           )
           .onNodeClick((node) => {
             selectNodeOnce(node);
