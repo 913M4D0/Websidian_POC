@@ -3073,30 +3073,30 @@
 
       <section
         class="slide"
-        data-title="PostgreSQL 관계 탐색"
-        data-note="참고 영상의 PostgreSQL 사례로 벡터 검색과 관계 탐색의 차이를 보여줍니다. 벡터는 PostgreSQL을 직접 언급한 프로젝트 문서를 찾지만, 관계 탐색은 프로젝트 참여 기록을 연결해 사람까지 찾습니다."
+        data-title="PostgreSQL 이슈 관계 탐색"
+        data-note="현재 PostgreSQL 지연 이슈에서 최근 배포 이슈를 거쳐 과거 롤백 이슈로 이어지는 경로를 보여줍니다. 세 노드는 모두 독립된 이슈 원문이며, 공유 파일이 연결 근거입니다."
         role="group"
         aria-roledescription="슬라이드"
-        aria-label="8. PostgreSQL 관계 탐색"
+        aria-label="8. PostgreSQL 이슈 관계 탐색"
       >
         <div class="slide-inner">
           <div class="slide-kicker">본론 · 검색 비교의 실제 예</div>
-          <h2 style="max-width:100%;margin-bottom:24px">‘PostgreSQL’을 검색하면<br />프로젝트는 보이지만, 사람은 보이지 않습니다</h2>
+          <h2 style="max-width:100%;margin-bottom:24px">‘PostgreSQL 응답 지연’만 검색하면<br />과거 ‘커넥션 풀 롤백’은 멀리 있습니다</h2>
           <div class="case-search-strip build" data-build>
             <b>VECTOR SEARCH</b>
-            <span>PostgreSQL을 직접 언급한 프로젝트 문서는 상위에 노출</span>
-            <em>참여자 문서에는 같은 단어가 없어 사람 답변이 누락될 수 있음</em>
+            <span>“PostgreSQL · 응답 지연”과 표현이 가까운 이슈부터 노출</span>
+            <em>“야간 배치 · 연결 풀 고갈”은 표현이 달라 검색에서 멀어짐</em>
           </div>
-          <div class="case-path build" data-build aria-label="PostgreSQL에서 사용 프로젝트를 거쳐 참여자로 이어지는 2단계 관계 경로">
-            <div class="chain-node root"><span class="hop-tag">0-HOP · 기술</span><b>PostgreSQL</b><span>질문의 출발점</span></div>
-            <div class="chain-edge"><span>사용 기술</span></div>
-            <div class="chain-node bridge"><span class="hop-tag">1-HOP · 프로젝트</span><b>프로젝트 A</b><span>기술 스택에<br />PostgreSQL</span></div>
-            <div class="chain-edge"><span>참여 관계</span></div>
-            <div class="chain-node remote"><span class="hop-tag">2-HOP · 사람</span><b>참여자 목록</b><span>프로젝트 A의<br />구성원 기록</span></div>
+          <div class="case-path build" data-build aria-label="현재 PostgreSQL 지연 이슈에서 최근 배포 이슈를 거쳐 과거 롤백 이슈로 이어지는 2단계 관계 경로">
+            <div class="chain-node root"><span class="hop-tag">0-HOP · 현재 이슈</span><b>EX-214</b><span>PostgreSQL 주문 조회<br />간헐 지연</span></div>
+            <div class="chain-edge"><span>order-db-client.ts</span></div>
+            <div class="chain-node bridge"><span class="hop-tag">1-HOP · 최근 배포 이슈</span><b>EX-186</b><span>주문 API PostgreSQL<br />드라이버 업데이트</span></div>
+            <div class="chain-edge"><span>db-pool.config.ts</span></div>
+            <div class="chain-node remote"><span class="hop-tag">2-HOP · 과거 장애 이슈</span><b>EX-073</b><span>야간 배치 커넥션 풀<br />고갈로 배포 롤백</span></div>
           </div>
-          <div class="case-verdict build" data-build><strong>벡터는 비슷한 문서를 찾고, 그래프는 관계를 따라 답을 찾습니다</strong><span>실무에서는 두 방식을 함께 사용합니다</span></div>
+          <div class="case-verdict build" data-build><strong>그래프는 최근 배포 변경을 거쳐 과거 장애 이슈까지 연결합니다</strong><span>세 노드 모두 독립된 이슈 원문입니다</span></div>
         </div>
-        <div class="screen-disclaimer">참고 영상의 PostgreSQL 사례를 발표용으로 재구성했습니다</div>
+        <div class="screen-disclaimer">설명용 합성 이슈 · 모든 노드는 독립된 이슈 원문입니다</div>
       </section>
 
       <section
