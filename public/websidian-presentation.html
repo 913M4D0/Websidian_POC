@@ -3073,30 +3073,30 @@
 
       <section
         class="slide"
-        data-title="WS-024 조사 경로"
-        data-note="개념 도식과 같은 좌우·깊이 문법을 실제 합성 이슈에 적용합니다. WS-024에서 WS-022를 거쳐 WS-021을 발견하지만, 이 경로는 원인 확정이 아니라 먼저 확인할 조사 후보입니다."
+        data-title="PostgreSQL 관계 탐색"
+        data-note="참고 영상의 PostgreSQL 사례로 벡터 검색과 관계 탐색의 차이를 보여줍니다. 벡터는 PostgreSQL을 직접 언급한 프로젝트 문서를 찾지만, 관계 탐색은 프로젝트 참여 기록을 연결해 사람까지 찾습니다."
         role="group"
         aria-roledescription="슬라이드"
-        aria-label="8. WS-024 조사 경로"
+        aria-label="8. PostgreSQL 관계 탐색"
       >
         <div class="slide-inner">
           <div class="slide-kicker">본론 · 검색 비교의 실제 예</div>
-          <h2 style="max-width:25ch;margin-bottom:24px">‘오늘 접수 누락’만 찾으면<br />타팀의 ‘시간대 변경’은 멀리 있습니다</h2>
+          <h2 style="max-width:100%;margin-bottom:24px">‘PostgreSQL’을 검색하면<br />프로젝트는 보이지만, 사람은 보이지 않습니다</h2>
           <div class="case-search-strip build" data-build>
-            <b>SYMPTOM SEARCH</b>
-            <span>“오늘 · 접수 · 목록”과 표현이 가까운 기록부터 노출</span>
-            <em>“다국가 배치 · UTC 기본값”은 직접 질의와 표현이 다름</em>
+            <b>VECTOR SEARCH</b>
+            <span>PostgreSQL을 직접 언급한 프로젝트 문서는 상위에 노출</span>
+            <em>참여자 문서에는 같은 단어가 없어 사람 답변이 누락될 수 있음</em>
           </div>
-          <div class="case-path build" data-build aria-label="WS-024에서 WS-022를 거쳐 WS-021로 이어지는 2단계 탐색 경로">
-            <div class="chain-node root"><span class="hop-tag">0-HOP · 진행 이슈</span><b>WS-024</b><span>전체 접수와 오늘 목록의<br />건수가 맞지 않음</span></div>
-            <div class="chain-edge"><span>today-receptions.ts<br />day-range.ts</span></div>
-            <div class="chain-node bridge"><span class="hop-tag">1-HOP · 배포 이력</span><b>WS-022</b><span>접수 서비스의<br />공통 패키지 업데이트</span></div>
-            <div class="chain-edge"><span>day-range.ts<br />common-dates 3.4.0</span></div>
-            <div class="chain-node remote"><span class="hop-tag">2-HOP · 타팀 이력</span><b>WS-021</b><span>다국가 배치의<br />기본 시간대 변경</span></div>
+          <div class="case-path build" data-build aria-label="PostgreSQL에서 사용 프로젝트를 거쳐 참여자로 이어지는 2단계 관계 경로">
+            <div class="chain-node root"><span class="hop-tag">0-HOP · 기술</span><b>PostgreSQL</b><span>질문의 출발점</span></div>
+            <div class="chain-edge"><span>사용 기술</span></div>
+            <div class="chain-node bridge"><span class="hop-tag">1-HOP · 프로젝트</span><b>프로젝트 A</b><span>기술 스택에<br />PostgreSQL</span></div>
+            <div class="chain-edge"><span>참여 관계</span></div>
+            <div class="chain-node remote"><span class="hop-tag">2-HOP · 사람</span><b>참여자 목록</b><span>프로젝트 A의<br />구성원 기록</span></div>
           </div>
-          <div class="case-verdict build" data-build><strong>먼저 확인할 조사 후보: common-dates 3.4.0의 기본 시간대 변경</strong><span>탐색 경로이며 원인 확정이 아닙니다</span></div>
+          <div class="case-verdict build" data-build><strong>벡터는 비슷한 문서를 찾고, 그래프는 관계를 따라 답을 찾습니다</strong><span>실무에서는 두 방식을 함께 사용합니다</span></div>
         </div>
-        <div class="screen-disclaimer">이슈·파일 경로·처리 기록은 모두 합성 POC 데이터입니다</div>
+        <div class="screen-disclaimer">참고 영상의 PostgreSQL 사례를 발표용으로 재구성했습니다</div>
       </section>
 
       <section
