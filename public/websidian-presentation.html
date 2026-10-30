@@ -3074,27 +3074,27 @@
       <section
         class="slide"
         data-title="PostgreSQL 이슈 관계 탐색"
-        data-note="현재 PostgreSQL 지연 이슈에서 최근 배포 이슈를 거쳐 과거 롤백 이슈로 이어지는 경로를 보여줍니다. 세 노드는 모두 독립된 이슈 원문이며, 공유 파일이 연결 근거입니다."
+        data-note="현재 주문 API의 DB 연결 실패 이슈에서 최근 커넥션 풀 상한 축소 배포와 과거 풀 고갈 롤백 이슈로 이어지는 경로를 보여줍니다. 공유 경로는 원인 확정이 아니라 우선 조사할 근거입니다."
         role="group"
         aria-roledescription="슬라이드"
         aria-label="8. PostgreSQL 이슈 관계 탐색"
       >
         <div class="slide-inner">
           <div class="slide-kicker">본론 · 검색 비교의 실제 예</div>
-          <h2 style="max-width:100%;margin-bottom:24px">‘PostgreSQL 응답 지연’만 검색하면<br />과거 ‘커넥션 풀 롤백’은 멀리 있습니다</h2>
+          <h2 style="max-width:100%;margin-bottom:24px">‘주문 API DB 연결 실패’만 검색하면<br />과거 ‘커넥션 풀 고갈’은 멀리 있습니다</h2>
           <div class="case-search-strip build" data-build>
             <b>VECTOR SEARCH</b>
-            <span>“PostgreSQL · 응답 지연”과 표현이 가까운 이슈부터 노출</span>
-            <em>“야간 배치 · 연결 풀 고갈”은 표현이 달라 검색에서 멀어짐</em>
+            <span>“주문 API · 연결 실패”와 표현이 가까운 이슈부터 노출</span>
+            <em>“야간 배치 · 커넥션 풀 고갈”은 표현이 달라 검색에서 멀어짐</em>
           </div>
-          <div class="case-path build" data-build aria-label="현재 PostgreSQL 지연 이슈에서 최근 배포 이슈를 거쳐 과거 롤백 이슈로 이어지는 2단계 관계 경로">
-            <div class="chain-node root"><span class="hop-tag">0-HOP · 현재 이슈</span><b>EX-214</b><span>PostgreSQL 주문 조회<br />간헐 지연</span></div>
+          <div class="case-path build" data-build aria-label="현재 주문 API DB 연결 실패 이슈에서 최근 커넥션 풀 설정 배포를 거쳐 과거 풀 고갈 롤백 이슈로 이어지는 2단계 관계 경로">
+            <div class="chain-node root"><span class="hop-tag">0-HOP · 현재 이슈</span><b>EX-214</b><span>장 시작 직후 주문 API<br />DB 연결 실패</span></div>
             <div class="chain-edge"><span>order-db-client.ts</span></div>
-            <div class="chain-node bridge"><span class="hop-tag">1-HOP · 최근 배포 이슈</span><b>EX-186</b><span>주문 API PostgreSQL<br />드라이버 업데이트</span></div>
+            <div class="chain-node bridge"><span class="hop-tag">1-HOP · 최근 배포 이슈</span><b>EX-186</b><span>PostgreSQL 커넥션 풀<br />상한 축소 배포</span></div>
             <div class="chain-edge"><span>db-pool.config.ts</span></div>
             <div class="chain-node remote"><span class="hop-tag">2-HOP · 과거 장애 이슈</span><b>EX-073</b><span>야간 배치 커넥션 풀<br />고갈로 배포 롤백</span></div>
           </div>
-          <div class="case-verdict build" data-build><strong>그래프는 최근 배포 변경을 거쳐 과거 장애 이슈까지 연결합니다</strong><span>세 노드 모두 독립된 이슈 원문입니다</span></div>
+          <div class="case-verdict build" data-build><strong>그래프는 최근 풀 설정 변경을 거쳐 과거 고갈 이슈까지 연결합니다</strong><span>세 노드 모두 독립된 이슈 원문입니다</span></div>
         </div>
         <div class="screen-disclaimer">설명용 합성 이슈 · 모든 노드는 독립된 이슈 원문입니다</div>
       </section>
